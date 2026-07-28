@@ -2,7 +2,7 @@ package retry
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/bin"
@@ -28,15 +28,26 @@ type retry struct {
 	errors []string
 }
 
+// retryInterval is the base delay between retries. Retrying immediately in a
+// busy loop would only amplify the server-side problem we are recovering from.
+const retryInterval = 500 * time.Millisecond
+
 func (r retry) Handle(next tg.Invoker) telegram.InvokeFunc {
 	return func(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
 		retries := 0
+		var err error
 
 		for retries < r.max {
-			if err := next.Invoke(ctx, input, output); err != nil {
+			if err = next.Invoke(ctx, input, output); err != nil {
 				if tgerr.Is(err, r.errors...) {
 					logctx.From(ctx).Debug("retry middleware", zap.Int("retries", retries), zap.Error(err))
 					retries++
+
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(time.Duration(retries) * retryInterval):
+					}
 					continue
 				}
 				return errors.Wrap(err, "retry middleware skip")
@@ -45,7 +56,7 @@ func (r retry) Handle(next tg.Invoker) telegram.InvokeFunc {
 			return nil
 		}
 
-		return fmt.Errorf("retry limit reached after %d attempts", r.max)
+		return errors.Wrapf(err, "retry limit reached after %d attempts", r.max)
 	}
 }
 

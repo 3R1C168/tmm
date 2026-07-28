@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -150,6 +151,42 @@ func TestStorage_MigrateFrom(t *testing.T) {
 				v, err := kv.Get(context.TODO(), key)
 				require.NoError(t, err)
 				require.Equal(t, value, v)
+			}
+		}
+	})
+}
+
+// TestStorage_ConcurrentSet ensures concurrent writes to different keys do not
+// lose each other's changes. This is a regression test for the file driver,
+// whose read-modify-write previously spanned two separate lock holds.
+func TestStorage_ConcurrentSet(t *testing.T) {
+	forEachStorage(t, func(e Storage, t *testing.T) {
+		kv, err := e.Open("concurrent")
+		require.NoError(t, err)
+
+		const workers = 16
+		const keysPerWorker = 25
+
+		var wg sync.WaitGroup
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func(w int) {
+				defer wg.Done()
+				for i := 0; i < keysPerWorker; i++ {
+					key := fmt.Sprintf("w%d-k%d", w, i)
+					require.NoError(t, kv.Set(context.TODO(), key, []byte(key)))
+				}
+			}(w)
+		}
+		wg.Wait()
+
+		// every key written above must be present
+		for w := 0; w < workers; w++ {
+			for i := 0; i < keysPerWorker; i++ {
+				key := fmt.Sprintf("w%d-k%d", w, i)
+				v, err := kv.Get(context.TODO(), key)
+				require.NoError(t, err, "key %s lost", key)
+				require.Equal(t, []byte(key), v)
 			}
 		}
 	})

@@ -36,7 +36,9 @@ func walk(paths, includes, excludes []string) ([]*File, error) {
 			}
 
 			f := File{File: path}
-			t := strings.TrimRight(path, filepath.Ext(path)) + consts.UploadThumbExt
+			// Use TrimSuffix, not TrimRight: the latter treats the extension as a
+			// cutset and would over-trim names like "report.txt" -> "repor".
+			t := strings.TrimSuffix(path, filepath.Ext(path)) + consts.UploadThumbExt
 			if fsutil.PathExists(t) {
 				f.Thumb = t
 			}

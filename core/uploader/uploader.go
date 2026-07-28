@@ -3,6 +3,7 @@ package uploader
 import (
 	"context"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
@@ -13,8 +14,11 @@ import (
 	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 	"github.com/samber/lo"
+	"go.uber.org/multierr"
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/util/fsutil"
 	"github.com/iyear/tdl/core/util/mediautil"
 )
@@ -41,6 +45,12 @@ func (u *Uploader) Upload(ctx context.Context, limit int) error {
 	wg, wgctx := errgroup.WithContext(ctx)
 	wg.SetLimit(limit)
 
+	var (
+		mu      sync.Mutex
+		failed  int
+		failure error
+	)
+
 	for u.opts.Iter.Next(wgctx) {
 		elem := u.opts.Iter.Value()
 
@@ -54,7 +64,16 @@ func (u *Uploader) Upload(ctx context.Context, limit int) error {
 					return errors.Wrap(err, "upload")
 				}
 
-				// don't return error, just log it
+				// aggregate failures instead of silently dropping them, so the
+				// caller can tell partial failure from full success.
+				logctx.From(ctx).Error("upload file failed",
+					zap.String("file", elem.File().Name()),
+					zap.Error(err))
+
+				mu.Lock()
+				failed++
+				failure = multierr.Append(failure, errors.Wrap(err, elem.File().Name()))
+				mu.Unlock()
 			}
 
 			return nil
@@ -65,7 +84,15 @@ func (u *Uploader) Upload(ctx context.Context, limit int) error {
 		return errors.Wrap(err, "iter")
 	}
 
-	return wg.Wait()
+	if err := wg.Wait(); err != nil {
+		return err
+	}
+
+	if failed > 0 {
+		return errors.Wrapf(failure, "%d file(s) failed to upload", failed)
+	}
+
+	return nil
 }
 
 func (u *Uploader) upload(ctx context.Context, elem Elem) error {

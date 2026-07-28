@@ -135,7 +135,12 @@ func (l *legacyKV) Get(_ context.Context, key string) ([]byte, error) {
 	var val []byte
 
 	if err := l.db.View(func(tx *bbolt.Tx) error {
-		val = tx.Bucket(l.ns).Get([]byte(key))
+		// bbolt values are only valid for the lifetime of the transaction, so we
+		// must copy the bytes out before returning them.
+		v := tx.Bucket(l.ns).Get([]byte(key))
+		if v != nil {
+			val = append([]byte(nil), v...)
+		}
 		return nil
 	}); err != nil {
 		return nil, err

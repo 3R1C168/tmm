@@ -16,14 +16,18 @@ import (
 )
 
 type recovery struct {
-	ctx     context.Context
-	backoff backoff.BackOff
+	ctx        context.Context
+	newBackoff func() backoff.BackOff
 }
 
-func New(ctx context.Context, backoff backoff.BackOff) telegram.Middleware {
+// New returns a middleware that retries recoverable (non Telegram business)
+// errors with exponential backoff. newBackoff must return a fresh BackOff for
+// each call: a shared instance carries its grown interval across requests, so
+// after one failure every subsequent request would back off from a high value.
+func New(ctx context.Context, newBackoff func() backoff.BackOff) telegram.Middleware {
 	return &recovery{
-		ctx:     ctx,
-		backoff: backoff,
+		ctx:        ctx,
+		newBackoff: newBackoff,
 	}
 }
 
@@ -41,7 +45,7 @@ func (r *recovery) Handle(next tg.Invoker) telegram.InvokeFunc {
 			}
 
 			return nil
-		}, r.backoff, func(err error, duration time.Duration) {
+		}, r.newBackoff(), func(err error, duration time.Duration) {
 			log.Debug("Wait for connection recovery", zap.Error(err), zap.Duration("duration", duration))
 		})
 	}

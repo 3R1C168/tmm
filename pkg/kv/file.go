@@ -131,12 +131,41 @@ func (f *file) write(m map[string]map[string][]byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	return f.writeLocked(m)
+}
+
+// writeLocked marshals and persists m. Caller must hold f.mu.
+func (f *file) writeLocked(m map[string]map[string][]byte) error {
 	bytes, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
 
 	return os.WriteFile(f.path, bytes, 0o644)
+}
+
+// update performs a read-modify-write under a single lock hold, so concurrent
+// updates to different keys do not lose each other's changes.
+func (f *file) update(ns string, fn func(m map[string]map[string][]byte)) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	bytes, err := os.ReadFile(f.path)
+	if err != nil {
+		return err
+	}
+
+	m := make(map[string]map[string][]byte)
+	if err = json.Unmarshal(bytes, &m); err != nil {
+		return err
+	}
+
+	if _, ok := m[ns]; !ok {
+		m[ns] = make(map[string][]byte)
+	}
+	fn(m)
+
+	return f.writeLocked(m)
 }
 
 type fileKV struct {
@@ -157,23 +186,13 @@ func (f *fileKV) Get(_ context.Context, key string) ([]byte, error) {
 }
 
 func (f *fileKV) Set(_ context.Context, key string, value []byte) error {
-	m, err := f.f.read()
-	if err != nil {
-		return errors.Wrap(err, "read")
-	}
-
-	m[f.ns][key] = value
-
-	return f.f.write(m)
+	return f.f.update(f.ns, func(m map[string]map[string][]byte) {
+		m[f.ns][key] = value
+	})
 }
 
 func (f *fileKV) Delete(_ context.Context, key string) error {
-	m, err := f.f.read()
-	if err != nil {
-		return errors.Wrap(err, "read")
-	}
-
-	delete(m[f.ns], key)
-
-	return f.f.write(m)
+	return f.f.update(f.ns, func(m map[string]map[string][]byte) {
+		delete(m[f.ns], key)
+	})
 }
