@@ -84,6 +84,9 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 	if err != nil {
 		return err
 	}
+	// resolve message bodies in the background so downloads are not blocked
+	// behind per-message API calls
+	it.startPrefetch(ctx)
 
 	if !opts.Restart {
 		// resume download and ask user to continue
@@ -175,8 +178,8 @@ func resume(ctx context.Context, kvd storage.Storage, iter *iter, ask bool) erro
 		return nil
 	}
 
-	finished := make(map[int]struct{})
-	if err = json.Unmarshal(b, &finished); err != nil {
+	finished, err := unmarshalProgress(b)
+	if err != nil {
 		return err
 	}
 
@@ -210,12 +213,57 @@ func resume(ctx context.Context, kvd storage.Storage, iter *iter, ask bool) erro
 	return nil
 }
 
+// progressRecord is the on-disk resume format. Finished holds order-independent
+// "peerID/msgID" keys so progress survives --desc, grouping and deletion.
+type progressRecord struct {
+	Finished []string `json:"finished"`
+}
+
+func marshalProgress(finished map[msgKey]struct{}) ([]byte, error) {
+	rec := progressRecord{Finished: make([]string, 0, len(finished))}
+	for k := range finished {
+		rec.Finished = append(rec.Finished, fmt.Sprintf("%d/%d", k.PeerID, k.MsgID))
+	}
+	return json.Marshal(rec)
+}
+
+// unmarshalProgress reads the resume record. It understands the current
+// order-independent format and the legacy logical-position format; legacy
+// positions cannot be mapped back to messages, so they are treated as no
+// resumable progress (the affected files simply re-download once).
+func unmarshalProgress(b []byte) (map[msgKey]struct{}, error) {
+	out := make(map[msgKey]struct{})
+
+	// current format
+	var rec progressRecord
+	if err := json.Unmarshal(b, &rec); err == nil && rec.Finished != nil {
+		for _, s := range rec.Finished {
+			var peerID int64
+			var msgID int
+			if _, err := fmt.Sscanf(s, "%d/%d", &peerID, &msgID); err == nil {
+				out[msgKey{PeerID: peerID, MsgID: msgID}] = struct{}{}
+			}
+		}
+		return out, nil
+	}
+
+	// legacy format: a JSON object mapping logical positions to {}, which we
+	// cannot translate to message keys, so resume is skipped for it.
+	var legacy map[int]struct{}
+	if err := json.Unmarshal(b, &legacy); err == nil {
+		logctx.From(context.Background()).Debug("Ignore legacy resume progress (logical positions)")
+		return out, nil
+	}
+
+	return nil, errors.New("unrecognized resume progress format")
+}
+
 func saveProgress(ctx context.Context, kvd storage.Storage, it *iter) error {
 	finished := it.Finished()
 	logctx.From(ctx).Debug("Save progress",
 		zap.Int("finished", len(finished)))
 
-	b, err := json.Marshal(finished)
+	b, err := marshalProgress(finished)
 	if err != nil {
 		return err
 	}

@@ -44,6 +44,21 @@ type fileTemplate struct {
 	DownloadDate int64
 }
 
+// msgKey identifies a downloaded message independent of iteration order, so
+// resume progress survives changes to --desc, grouping and message deletion.
+type msgKey struct {
+	PeerID int64
+	MsgID  int
+}
+
+func keyOf(peer tg.InputPeerClass, msgID int) msgKey {
+	return msgKey{PeerID: tutil.GetInputPeerID(peer), MsgID: msgID}
+}
+
+func keyFromMsg(peer tg.InputPeerClass, m *tg.Message) msgKey {
+	return keyOf(peer, m.ID)
+}
+
 type iter struct {
 	pool    dcpool.Pool
 	manager *peers.Manager
@@ -54,8 +69,10 @@ type iter struct {
 	opts    Options
 	delay   time.Duration
 
+	prefetcher *prefetcher
+
 	mu          *sync.Mutex
-	finished    map[int]struct{}
+	finished    map[msgKey]struct{} // order-independent set of downloaded messages
 	fingerprint string
 	// This param is kept for potential future use but is currently unused.
 	// preSum       []int
@@ -94,7 +111,7 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dial
 	// to keep fingerprint stable
 	sortDialogs(dialogs, opts.Desc)
 
-	return &iter{
+	it := &iter{
 		pool:    pool,
 		manager: manager,
 		dialogs: dialogs,
@@ -104,8 +121,10 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dial
 		tpl:     tpl,
 		delay:   delay,
 
+		prefetcher: newPrefetcher(pool, dialogs),
+
 		mu:          &sync.Mutex{},
-		finished:    make(map[int]struct{}),
+		finished:    make(map[msgKey]struct{}),
 		fingerprint: fingerprint(dialogs),
 		// This param is kept for potential future use but is currently unused.
 		// preSum:       preSum(dialogs),
@@ -117,7 +136,16 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dial
 		deletedIDs:     make([]string, 0),
 		elem:           make(chan downloader.Elem, 10), // grouped message buffer
 		err:            nil,
-	}, nil
+	}
+
+	return it, nil
+}
+
+// startPrefetch launches the background message-resolution pipeline. It must be
+// called once the caller's context is available (iter is built before Run's ctx
+// is fully wired in some paths, so this is separate from newIter).
+func (i *iter) startPrefetch(ctx context.Context) {
+	i.prefetcher.prefetch(ctx)
 }
 
 func (i *iter) Next(ctx context.Context) bool {
@@ -174,7 +202,9 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 		i.err = errors.Wrap(err, "resolve from input peer")
 		return false, false
 	}
-	message, err := tutil.GetSingleMessage(ctx, i.pool.Default(ctx), peer, msg)
+	// message bodies are prefetched in the background in batches, so resolving
+	// one here is normally a cache hit and does not block the download workers
+	message, err := i.prefetcher.get(ctx, peer, msg)
 	if err != nil {
 		// Check if the error is due to a deleted message
 		if errors.Is(err, tutil.ErrMessageDeleted) {
@@ -195,8 +225,8 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 		return i.processGrouped(ctx, message, from, startLogicalPos)
 	}
 
-	// check if finished
-	if _, ok := i.finished[startLogicalPos]; ok {
+	// check if finished (order-independent: survives --desc/grouping changes)
+	if i.isFinished(keyFromMsg(peer, message)) {
 		i.logicalPos++ // increment logical position even if skipped
 		return false, true
 	}
@@ -204,6 +234,16 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 	ret, skip = i.processSingle(ctx, message, from, startLogicalPos)
 	i.logicalPos++ // increment logical position after processing
 	return ret, skip
+}
+
+// isFinished reports whether a message has already been downloaded. It checks
+// the order-independent key set, and falls back to the legacy logical-position
+// set when an old-format progress record was loaded.
+func (i *iter) isFinished(k msgKey) bool {
+	if _, ok := i.finished[k]; ok {
+		return true
+	}
+	return false
 }
 
 func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peers.Peer, logicalPos int) (bool, bool) {
@@ -294,6 +334,7 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 	i.elem <- &iterElem{
 		id:         int(i.counter.Inc()),
 		logicalPos: logicalPos,
+		key:        keyFromMsg(from.InputPeer(), message),
 
 		from:    from,
 		fromMsg: message,
@@ -320,8 +361,8 @@ func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from pee
 	for idx, msg := range grouped {
 		logicalPos := startLogicalPos + idx
 
-		// check if this grouped message is already finished
-		if _, ok := i.finished[logicalPos]; ok {
+		// check if this grouped message is already finished (order-independent)
+		if i.isFinished(keyFromMsg(from.InputPeer(), msg)) {
 			continue
 		}
 
@@ -352,29 +393,34 @@ func (i *iter) Err() error {
 	return i.err
 }
 
-func (i *iter) SetFinished(finished map[int]struct{}) {
+func (i *iter) SetFinished(finished map[msgKey]struct{}) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	i.finished = finished
 }
 
-func (i *iter) Finished() map[int]struct{} {
+func (i *iter) Finished() map[msgKey]struct{} {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	return i.finished
+	// return a copy so callers can iterate without racing concurrent Finish
+	out := make(map[msgKey]struct{}, len(i.finished))
+	for k := range i.finished {
+		out[k] = struct{}{}
+	}
+	return out
 }
 
 func (i *iter) Fingerprint() string {
 	return i.fingerprint
 }
 
-func (i *iter) Finish(id int) {
+func (i *iter) Finish(k msgKey) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	i.finished[id] = struct{}{}
+	i.finished[k] = struct{}{}
 }
 
 func (i *iter) Total() int {
@@ -416,13 +462,14 @@ func flatDialogs(dialogs [][]*tmessage.Dialog) []*tmessage.Dialog {
 }
 
 func sortDialogs(dialogs []*tmessage.Dialog, desc bool) {
-	sort.Slice(dialogs, func(i, j int) bool {
+	// stable sort so equal peers keep a deterministic relative order
+	sort.SliceStable(dialogs, func(i, j int) bool {
 		return tutil.GetInputPeerID(dialogs[i].Peer) <
 			tutil.GetInputPeerID(dialogs[j].Peer) // increasing order
 	})
 
 	for _, m := range dialogs {
-		sort.Slice(m.Messages, func(i, j int) bool {
+		sort.SliceStable(m.Messages, func(i, j int) bool {
 			if desc {
 				return m.Messages[i] > m.Messages[j]
 			}
@@ -441,13 +488,44 @@ func sortDialogs(dialogs []*tmessage.Dialog, desc bool) {
 // 	return sum
 // }
 
+// fingerprint identifies the set of (peer, message) pairs to download. It is
+// normalized (peers sorted ascending, message IDs within a peer sorted
+// ascending and de-duplicated) so it does not depend on --desc or input order,
+// keeping the resume key stable across runs with the same content.
 func fingerprint(dialogs []*tmessage.Dialog) string {
+	type peerMsgs struct {
+		peerID int64
+		msgs   []int
+	}
+
+	byPeer := make(map[int64]map[int]struct{})
+	for _, m := range dialogs {
+		pid := tutil.GetInputPeerID(m.Peer)
+		if byPeer[pid] == nil {
+			byPeer[pid] = make(map[int]struct{})
+		}
+		for _, msg := range m.Messages {
+			byPeer[pid][msg] = struct{}{}
+		}
+	}
+
+	peersList := make([]peerMsgs, 0, len(byPeer))
+	for pid, set := range byPeer {
+		msgs := make([]int, 0, len(set))
+		for id := range set {
+			msgs = append(msgs, id)
+		}
+		sort.Ints(msgs)
+		peersList = append(peersList, peerMsgs{peerID: pid, msgs: msgs})
+	}
+	sort.Slice(peersList, func(i, j int) bool { return peersList[i].peerID < peersList[j].peerID })
+
 	endian := binary.BigEndian
 	buf, b := &bytes.Buffer{}, make([]byte, 8)
-	for _, m := range dialogs {
-		endian.PutUint64(b, uint64(tutil.GetInputPeerID(m.Peer)))
+	for _, pm := range peersList {
+		endian.PutUint64(b, uint64(pm.peerID))
 		buf.Write(b)
-		for _, msg := range m.Messages {
+		for _, msg := range pm.msgs {
 			endian.PutUint64(b, uint64(msg))
 			buf.Write(b)
 		}

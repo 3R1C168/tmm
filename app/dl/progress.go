@@ -79,7 +79,7 @@ func (p *progress) OnDone(elem downloader.Elem, err error) {
 		return
 	}
 
-	p.it.Finish(e.logicalPos)
+	p.it.Finish(e.key)
 
 	// download finished: drop the control file before renaming the data file
 	if e.resume != nil {

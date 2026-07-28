@@ -14,6 +14,7 @@ import (
 type iterElem struct {
 	id         int // tracker id for progress tracking
 	logicalPos int // logical position for resume/finished tracking
+	key        msgKey
 
 	from    peers.Peer
 	fromMsg *tg.Message
