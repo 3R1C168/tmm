@@ -27,6 +27,10 @@ func NewDownload() *cobra.Command {
 				return fmt.Errorf("no urls or files provided")
 			}
 
+			if !opts.Takeout.Valid() {
+				return fmt.Errorf("invalid takeout mode %q: must be auto, always or never", opts.Takeout)
+			}
+
 			opts.Template = viper.GetString(consts.FlagDlTemplate)
 
 			return tRun(cmd.Context(), func(ctx context.Context, c *telegram.Client, kvd storage.Storage) error {
@@ -58,7 +62,7 @@ func NewDownload() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.SkipSame, "skip-same", false, "skip files with the same name(without extension) and size")
 
 	cmd.Flags().BoolVar(&opts.Desc, "desc", false, "download files from the newest to the oldest ones (may affect resume download)")
-	cmd.Flags().BoolVar(&opts.Takeout, "takeout", false, "takeout sessions let you export data from your account with lower flood wait limits.")
+	cmd.Flags().StringVar((*string)(&opts.Takeout), "takeout", string(dl.TakeoutAuto), "takeout session usage: auto (only for files >50MB), always, never. Takeout lowers flood-wait limits but shows an export notification on your other devices")
 	cmd.Flags().BoolVar(&opts.Group, "group", false, "auto detect grouped message and download all of them")
 
 	// resume flags, if both false then ask user

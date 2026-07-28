@@ -30,7 +30,7 @@ func (i *iterElem) File() downloader.File { return i }
 
 func (i *iterElem) To() io.WriterAt { return i.to }
 
-func (i *iterElem) AsTakeout() bool { return i.opts.Takeout }
+func (i *iterElem) AsTakeout() bool { return i.opts.Takeout.Enabled(i.file.Size) }
 
 func (i *iterElem) Resume() *downloader.State { return i.resume }
 

@@ -36,7 +36,7 @@ type Options struct {
 	Include    []string
 	Exclude    []string
 	Desc       bool
-	Takeout    bool
+	Takeout    TakeoutMode
 	Group      bool // auto detect grouped message
 
 	// resume opts
@@ -70,7 +70,7 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		zap.Any("dialogs", dialogs))
 
 	if opts.Serve {
-		return serve(ctx, kvd, pool, dialogs, opts.Port, opts.Takeout)
+		return serve(ctx, kvd, pool, dialogs, opts.Port, opts.Takeout.Enabled(1<<62))
 	}
 
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))

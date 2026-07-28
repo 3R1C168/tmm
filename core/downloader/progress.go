@@ -37,7 +37,7 @@ type writeAt struct {
 
 	downloaded *atomic.Int64
 
-	flushMu  sync.Mutex
+	flushMu   sync.Mutex
 	lastFlush time.Time
 }
 
