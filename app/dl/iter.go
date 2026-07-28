@@ -59,6 +59,16 @@ func keyFromMsg(peer tg.InputPeerClass, m *tg.Message) msgKey {
 	return keyOf(peer, m.ID)
 }
 
+// groupKey identifies an album (grouped messages) within a peer.
+type groupKey struct {
+	PeerID    int64
+	GroupedID int64
+}
+
+func groupKeyOf(peer tg.InputPeerClass, groupedID int64) groupKey {
+	return groupKey{PeerID: tutil.GetInputPeerID(peer), GroupedID: groupedID}
+}
+
 type iter struct {
 	pool    dcpool.Pool
 	manager *peers.Manager
@@ -71,9 +81,13 @@ type iter struct {
 
 	prefetcher *prefetcher
 
-	mu          *sync.Mutex
-	finished    map[msgKey]struct{} // order-independent set of downloaded messages
-	fingerprint string
+	mu       *sync.Mutex
+	finished map[msgKey]struct{} // order-independent set of downloaded messages
+	// processedGroups records grouped IDs whose whole album was already
+	// expanded, so when the iterator later reaches another message of the same
+	// album it is skipped instead of re-fetching the group.
+	processedGroups map[groupKey]struct{}
+	fingerprint     string
 	// This param is kept for potential future use but is currently unused.
 	// preSum       []int
 	logicalPos   int // logical position for finished tracking
@@ -123,9 +137,10 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dial
 
 		prefetcher: newPrefetcher(pool, dialogs),
 
-		mu:          &sync.Mutex{},
-		finished:    make(map[msgKey]struct{}),
-		fingerprint: fingerprint(dialogs),
+		mu:              &sync.Mutex{},
+		finished:        make(map[msgKey]struct{}),
+		processedGroups: make(map[groupKey]struct{}),
+		fingerprint:     fingerprint(dialogs),
 		// This param is kept for potential future use but is currently unused.
 		// preSum:       preSum(dialogs),
 		logicalPos:     0,
@@ -221,7 +236,12 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 		return false, false
 	}
 
-	if _, ok := message.GetGroupedID(); ok && i.opts.Group {
+	if gid, ok := message.GetGroupedID(); ok && i.opts.Group {
+		// skip if this album was already expanded via another message in it
+		if i.isGroupProcessed(groupKeyOf(peer, gid)) {
+			i.logicalPos++
+			return false, true
+		}
 		return i.processGrouped(ctx, message, from, startLogicalPos)
 	}
 
@@ -244,6 +264,17 @@ func (i *iter) isFinished(k msgKey) bool {
 		return true
 	}
 	return false
+}
+
+// isGroupProcessed reports whether an album was already expanded.
+func (i *iter) isGroupProcessed(k groupKey) bool {
+	_, ok := i.processedGroups[k]
+	return ok
+}
+
+// markGroupProcessed records an album as expanded so it is not re-fetched.
+func (i *iter) markGroupProcessed(k groupKey) {
+	i.processedGroups[k] = struct{}{}
 }
 
 func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peers.Peer, logicalPos int) (bool, bool) {
@@ -354,6 +385,11 @@ func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from pee
 	if err != nil {
 		i.err = errors.Wrapf(err, "resolve grouped message %d/%d", from.ID(), message.ID)
 		return false, false
+	}
+
+	// mark the album as expanded so the iterator skips its other messages
+	if gid, ok := message.GetGroupedID(); ok {
+		i.markGroupProcessed(groupKeyOf(from.InputPeer(), gid))
 	}
 
 	hasValid := false
