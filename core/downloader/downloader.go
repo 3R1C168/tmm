@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram/downloader"
+	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
@@ -85,12 +86,94 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 		client = d.opts.Pool.Takeout(ctx, elem.File().DC())
 	}
 
+	threads := tutil.BestThreads(elem.File().Size(), d.opts.Threads)
+
+	if state := elem.Resume(); state != nil {
+		// resume: only fetch the pieces that are still missing
+		if err := d.resume(ctx, client, elem, state, threads); err != nil {
+			return errors.Wrap(err, "resume download")
+		}
+		return nil
+	}
+
 	_, err := downloader.NewDownloader().WithPartSize(MaxPartSize).
 		Download(client, elem.File().Location()).
-		WithThreads(tutil.BestThreads(elem.File().Size(), d.opts.Threads)).
+		WithThreads(threads).
 		Parallel(ctx, newWriteAt(elem, d.opts.Progress, MaxPartSize))
 	if err != nil {
 		return errors.Wrap(err, "download")
+	}
+
+	return nil
+}
+
+// resume downloads only the missing pieces recorded in state, in parallel,
+// and persists progress to the control file as pieces complete.
+func (d *Downloader) resume(ctx context.Context, client *tg.Client, elem Elem, state *State, threads int) error {
+	missing := state.Missing()
+	if len(missing) == 0 {
+		return nil
+	}
+
+	logctx.From(ctx).Info("Resume download",
+		zap.String("file", elem.File().Location().String()),
+		zap.Int("missing_pieces", len(missing)))
+
+	w := newWriteAt(elem, d.opts.Progress, MaxPartSize)
+
+	wg, wgctx := errgroup.WithContext(ctx)
+	wg.SetLimit(threads)
+
+	for _, pr := range missing {
+		pr := pr
+		wg.Go(func() error {
+			return d.fetchPiece(wgctx, client, elem, w, pr)
+		})
+	}
+
+	if err := wg.Wait(); err != nil {
+		// persist whatever we managed to write so a later run resumes from here
+		_ = state.Flush()
+		return err
+	}
+
+	return state.Flush()
+}
+
+// fetchPiece downloads a single piece [pr.Off, pr.End) and writes it at its
+// absolute offset. Offsets are aligned to partSize, satisfying Telegram's
+// precise-mode requirement (offset % 1024 == 0).
+func (d *Downloader) fetchPiece(ctx context.Context, client *tg.Client, elem Elem, w *writeAt, pr pieceRange) error {
+	off := pr.Off
+	for off < pr.End {
+		limit := int64(MaxPartSize)
+		if rem := pr.End - off; rem < limit {
+			limit = rem
+		}
+
+		res, err := client.UploadGetFile(ctx, &tg.UploadGetFileRequest{
+			Precise:  true,
+			Location: elem.File().Location(),
+			Offset:   off,
+			Limit:    int(limit),
+		})
+		if err != nil {
+			return errors.Wrap(err, "get file")
+		}
+
+		file, ok := res.(*tg.UploadFile)
+		if !ok {
+			return errors.Errorf("unexpected response type %T", res)
+		}
+		if len(file.Bytes) == 0 {
+			return errors.Errorf("empty chunk at offset %d", off)
+		}
+
+		if _, err = w.WriteAt(file.Bytes, off); err != nil {
+			return errors.Wrap(err, "write chunk")
+		}
+
+		off += int64(len(file.Bytes))
 	}
 
 	return nil

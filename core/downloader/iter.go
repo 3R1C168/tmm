@@ -18,6 +18,10 @@ type Elem interface {
 	To() io.WriterAt
 
 	AsTakeout() bool
+
+	// Resume returns the per-piece download state to resume from, or nil for a
+	// fresh download. When non-nil, only the missing pieces are fetched.
+	Resume() *State
 }
 
 type File interface {

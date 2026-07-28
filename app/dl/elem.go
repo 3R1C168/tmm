@@ -21,6 +21,8 @@ type iterElem struct {
 
 	to *os.File
 
+	resume *downloader.State // non-nil when resuming a partial download
+
 	opts Options
 }
 
@@ -29,6 +31,8 @@ func (i *iterElem) File() downloader.File { return i }
 func (i *iterElem) To() io.WriterAt { return i.to }
 
 func (i *iterElem) AsTakeout() bool { return i.opts.Takeout }
+
+func (i *iterElem) Resume() *downloader.State { return i.resume }
 
 func (i *iterElem) Location() tg.InputFileLocationClass { return i.file.InputFileLoc }
 

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -258,10 +259,36 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 		return false, false
 	}
 
-	to, err := os.Create(path)
+	// Open without truncating so we can resume a partial download. If a control
+	// file exists and matches the media, only the missing pieces are fetched;
+	// otherwise the file is truncated and downloaded from scratch.
+	to, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		i.err = errors.Wrap(err, "create file")
 		return false, false
+	}
+
+	resume, err := downloader.LoadState(path, item.Size, downloader.MaxPartSize)
+	if err != nil {
+		// state exists but is corrupt or stale: fall back to a fresh download
+		logctx.From(ctx).Warn("Ignore invalid resume state, re-download",
+			zap.String("path", path), zap.Error(err))
+		resume = nil
+	}
+
+	if resume == nil || resume.Complete() {
+		// fresh download, or a leftover complete state: truncate and start over
+		if err = to.Truncate(0); err != nil {
+			_ = to.Close()
+			i.err = errors.Wrap(err, "truncate file")
+			return false, false
+		}
+		if _, err = to.Seek(0, io.SeekStart); err != nil {
+			_ = to.Close()
+			i.err = errors.Wrap(err, "seek file")
+			return false, false
+		}
+		resume = downloader.NewState(downloader.StatePath(path), item.Size, downloader.MaxPartSize)
 	}
 
 	i.elem <- &iterElem{
@@ -272,7 +299,8 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 		fromMsg: message,
 		file:    item,
 
-		to: to,
+		to:     to,
+		resume: resume,
 
 		opts: i.opts,
 	}

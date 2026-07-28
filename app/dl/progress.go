@@ -71,11 +71,20 @@ func (p *progress) OnDone(elem downloader.Elem, err error) {
 		if !errors.Is(err, context.Canceled) { // don't report user cancel
 			p.fail(t, elem, errors.Wrap(err, "progress"))
 		}
-		_ = os.Remove(e.to.Name()) // just try to remove temp file, ignore error
+		// keep the partial file and its control file so the download can be
+		// resumed later; flush whatever pieces were written
+		if e.resume != nil {
+			_ = e.resume.Flush()
+		}
 		return
 	}
 
 	p.it.Finish(e.logicalPos)
+
+	// download finished: drop the control file before renaming the data file
+	if e.resume != nil {
+		_ = e.resume.Remove()
+	}
 
 	if err := p.donePost(e); err != nil {
 		p.fail(t, elem, errors.Wrap(err, "post file"))
