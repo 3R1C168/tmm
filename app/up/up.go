@@ -21,6 +21,7 @@ import (
 
 	"github.com/iyear/tdl/core/dcpool"
 	"github.com/iyear/tdl/core/logctx"
+	"github.com/iyear/tdl/core/runopts"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/tclient"
 	"github.com/iyear/tdl/core/uploader"
@@ -41,6 +42,35 @@ type Options struct {
 	Remove   bool
 	Photo    bool
 	Caption  string
+
+	// Runtime holds per-run tunables. When zero, values fall back to viper
+	// global config; set it to upload programmatically with explicit settings.
+	Runtime runopts.Options
+}
+
+// runtime returns the effective runtime options (explicit values win, viper
+// global config fills the rest).
+func (o Options) runtime() runopts.Options {
+	r := o.Runtime
+	if r.PoolSize == 0 {
+		r.PoolSize = viper.GetInt(consts.FlagPoolSize)
+	}
+	if r.ReconnectTimeout == 0 {
+		r.ReconnectTimeout = viper.GetDuration(consts.FlagReconnectTimeout)
+	}
+	if r.Threads == 0 {
+		r.Threads = viper.GetInt(consts.FlagThreads)
+	}
+	if r.Limit == 0 {
+		r.Limit = viper.GetInt(consts.FlagLimit)
+	}
+	if r.Delay == 0 {
+		r.Delay = viper.GetDuration(consts.FlagDelay)
+	}
+	if !r.DisableProgressPS {
+		r.DisableProgressPS = viper.GetBool(consts.FlagDisableProgressPS)
+	}
+	return r.Normalize()
 }
 
 type Env struct {
@@ -71,9 +101,11 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 
 	color.Blue("Files count: %d", len(files))
 
+	rt := opts.runtime()
+
 	pool := dcpool.NewPool(c,
-		int64(viper.GetInt(consts.FlagPoolSize)),
-		tclient.NewDefaultMiddlewares(ctx, viper.GetDuration(consts.FlagReconnectTimeout))...)
+		int64(rt.PoolSize),
+		tclient.NewDefaultMiddlewares(ctx, rt.ReconnectTimeout)...)
 	defer multierr.AppendInvoke(&rerr, multierr.Close(pool))
 
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))
@@ -90,14 +122,14 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 
 	upProgress := prog.New(utils.Byte.FormatBinaryBytes)
 	upProgress.SetNumTrackersExpected(len(files))
-	if !viper.GetBool(consts.FlagDisableProgressPS) {
+	if !rt.DisableProgressPS {
 		prog.EnablePS(ctx, upProgress)
 	}
 
 	options := uploader.Options{
 		Client:   pool.Default(ctx),
-		Threads:  viper.GetInt(consts.FlagThreads),
-		Iter:     newIter(files, to, caption, opts.Chat, opts.Thread, opts.Photo, opts.Remove, viper.GetDuration(consts.FlagDelay), manager),
+		Threads:  rt.Threads,
+		Iter:     newIter(files, to, caption, opts.Chat, opts.Thread, opts.Photo, opts.Remove, rt.Delay, manager),
 		Progress: newProgress(upProgress),
 	}
 
@@ -106,7 +138,7 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 	go upProgress.Render()
 	defer prog.Wait(ctx, upProgress)
 
-	return up.Upload(ctx, viper.GetInt(consts.FlagLimit))
+	return up.Upload(ctx, rt.Limit)
 }
 
 func resolveDest(ctx context.Context, manager *peers.Manager, input string) (*vm.Program, error) {

@@ -19,6 +19,7 @@ import (
 	"github.com/iyear/tdl/app/internal/tctx"
 	"github.com/iyear/tdl/core/dcpool"
 	"github.com/iyear/tdl/core/forwarder"
+	"github.com/iyear/tdl/core/runopts"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/tclient"
 	"github.com/iyear/tdl/core/util/tutil"
@@ -37,6 +38,32 @@ type Options struct {
 	DryRun bool
 	Single bool
 	Desc   bool
+
+	// Runtime holds per-run tunables. When zero, values fall back to viper
+	// global config; set it to forward programmatically with explicit settings.
+	Runtime runopts.Options
+}
+
+// runtime returns the effective runtime options (explicit values win, viper
+// global config fills the rest).
+func (o Options) runtime() runopts.Options {
+	r := o.Runtime
+	if r.PoolSize == 0 {
+		r.PoolSize = viper.GetInt(consts.FlagPoolSize)
+	}
+	if r.ReconnectTimeout == 0 {
+		r.ReconnectTimeout = viper.GetDuration(consts.FlagReconnectTimeout)
+	}
+	if r.Threads == 0 {
+		r.Threads = viper.GetInt(consts.FlagThreads)
+	}
+	if r.Delay == 0 {
+		r.Delay = viper.GetDuration(consts.FlagDelay)
+	}
+	if !r.DisableProgressPS {
+		r.DisableProgressPS = viper.GetBool(consts.FlagDisableProgressPS)
+	}
+	return r.Normalize()
 }
 
 func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Options) (rerr error) {
@@ -54,9 +81,11 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 
 	ctx = tctx.WithKV(ctx, kvd)
 
+	rt := opts.runtime()
+
 	pool := dcpool.NewPool(c,
-		int64(viper.GetInt(consts.FlagPoolSize)),
-		tclient.NewDefaultMiddlewares(ctx, viper.GetDuration(consts.FlagReconnectTimeout))...)
+		int64(rt.PoolSize),
+		tclient.NewDefaultMiddlewares(ctx, rt.ReconnectTimeout)...)
 	defer multierr.AppendInvoke(&rerr, multierr.Close(pool))
 
 	ctx = tctx.WithPool(ctx, pool)
@@ -80,7 +109,7 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 
 	fwProgress := prog.New(pw.FormatNumber)
 	fwProgress.SetNumTrackersExpected(totalMessages(dialogs))
-	if !viper.GetBool(consts.FlagDisableProgressPS) {
+	if !rt.DisableProgressPS {
 		prog.EnablePS(ctx, fwProgress)
 	}
 
@@ -96,10 +125,10 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 			silent:  opts.Silent,
 			dryRun:  opts.DryRun,
 			grouped: !opts.Single,
-			delay:   viper.GetDuration(consts.FlagDelay),
+			delay:   rt.Delay,
 		}),
 		Progress: newProgress(fwProgress),
-		Threads:  viper.GetInt(consts.FlagThreads),
+		Threads:  rt.Threads,
 	})
 
 	go fwProgress.Render()

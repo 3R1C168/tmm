@@ -18,14 +18,12 @@ import (
 	"github.com/gotd/contrib/tg_io"
 	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
-	"github.com/spf13/viper"
 
 	"github.com/iyear/tdl/core/dcpool"
 	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/tmedia"
 	"github.com/iyear/tdl/core/util/tutil"
-	"github.com/iyear/tdl/pkg/consts"
 	"github.com/iyear/tdl/pkg/tmessage"
 )
 
@@ -43,6 +41,7 @@ func serve(ctx context.Context,
 	dialogs [][]*tmessage.Dialog,
 	port int,
 	takeout bool,
+	partSize int,
 ) error {
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))
 
@@ -88,7 +87,7 @@ func serve(ctx context.Context,
 
 		u := partio.NewStreamer(
 			tg_io.NewDownloader(api).ChunkSource(item.Size, item.InputFileLoc),
-			int64(viper.GetInt(consts.FlagPartSize)))
+			int64(partSize))
 
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, item.Name))
 

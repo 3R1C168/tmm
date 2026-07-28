@@ -17,6 +17,7 @@ import (
 	"github.com/iyear/tdl/core/dcpool"
 	"github.com/iyear/tdl/core/downloader"
 	"github.com/iyear/tdl/core/logctx"
+	"github.com/iyear/tdl/core/runopts"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/tclient"
 	"github.com/iyear/tdl/pkg/consts"
@@ -46,10 +47,45 @@ type Options struct {
 	Serve bool
 	Port  int
 
+	// Runtime holds per-run tunables (pool size, threads, limit, ...). When
+	// zero, values are read from viper global config for backward compatibility;
+	// set it to run downloads programmatically with explicit settings.
+	Runtime runopts.Options
+
 	// Progress, when non-nil, receives download progress events instead of the
 	// built-in terminal progress bar. This lets non-CLI callers (e.g. a web
 	// backend) stream progress to their own UI. The terminal UI is used when nil.
 	Progress downloader.Progress
+}
+
+// runtime returns the effective runtime options, preferring explicitly-set
+// values and falling back to viper global config for any left unset.
+func (o Options) runtime() runopts.Options {
+	r := o.Runtime
+	if r.PoolSize == 0 {
+		r.PoolSize = viper.GetInt(consts.FlagPoolSize)
+	}
+	if r.ReconnectTimeout == 0 {
+		r.ReconnectTimeout = viper.GetDuration(consts.FlagReconnectTimeout)
+	}
+	if r.Threads == 0 {
+		r.Threads = viper.GetInt(consts.FlagThreads)
+	}
+	if r.Limit == 0 {
+		r.Limit = viper.GetInt(consts.FlagLimit)
+	}
+	if r.Delay == 0 {
+		r.Delay = viper.GetDuration(consts.FlagDelay)
+	}
+	if r.PartSize == 0 {
+		r.PartSize = viper.GetInt(consts.FlagPartSize)
+	}
+	// bool has no "unset" zero value to distinguish, so keep honoring the global
+	// flag unless the caller explicitly disables it (a service would set it true).
+	if !r.DisableProgressPS {
+		r.DisableProgressPS = viper.GetBool(consts.FlagDisableProgressPS)
+	}
+	return r.Normalize()
 }
 
 type parser struct {
@@ -58,9 +94,11 @@ type parser struct {
 }
 
 func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Options) (rerr error) {
+	rt := opts.runtime()
+
 	pool := dcpool.NewPool(c,
-		int64(viper.GetInt(consts.FlagPoolSize)),
-		tclient.NewDefaultMiddlewares(ctx, viper.GetDuration(consts.FlagReconnectTimeout))...)
+		int64(rt.PoolSize),
+		tclient.NewDefaultMiddlewares(ctx, rt.ReconnectTimeout)...)
 	defer multierr.AppendInvoke(&rerr, multierr.Close(pool))
 
 	parsers := []parser{
@@ -75,12 +113,12 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		zap.Any("dialogs", dialogs))
 
 	if opts.Serve {
-		return serve(ctx, kvd, pool, dialogs, opts.Port, opts.Takeout.Enabled(1<<62))
+		return serve(ctx, kvd, pool, dialogs, opts.Port, opts.Takeout.Enabled(1<<62), rt.PartSize)
 	}
 
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))
 
-	it, err := newIter(pool, manager, dialogs, opts, viper.GetDuration(consts.FlagDelay))
+	it, err := newIter(pool, manager, dialogs, opts, rt.Delay)
 	if err != nil {
 		return err
 	}
@@ -109,7 +147,7 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 	if progress == nil {
 		dlProgress := prog.New(utils.Byte.FormatBinaryBytes)
 		dlProgress.SetNumTrackersExpected(it.Total())
-		if !viper.GetBool(consts.FlagDisableProgressPS) {
+		if !rt.DisableProgressPS {
 			prog.EnablePS(ctx, dlProgress)
 		}
 		progress = newProgress(dlProgress, it, opts)
@@ -136,11 +174,11 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 
 	options := downloader.Options{
 		Pool:     pool,
-		Threads:  viper.GetInt(consts.FlagThreads),
+		Threads:  rt.Threads,
 		Iter:     it,
 		Progress: progress,
 	}
-	limit := viper.GetInt(consts.FlagLimit)
+	limit := rt.Limit
 
 	logctx.From(ctx).Info("Start download",
 		zap.String("dir", opts.Dir),
