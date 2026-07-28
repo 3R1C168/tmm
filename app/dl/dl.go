@@ -45,6 +45,11 @@ type Options struct {
 	// serve
 	Serve bool
 	Port  int
+
+	// Progress, when non-nil, receives download progress events instead of the
+	// built-in terminal progress bar. This lets non-CLI callers (e.g. a web
+	// backend) stream progress to their own UI. The terminal UI is used when nil.
+	Progress downloader.Progress
 }
 
 type parser struct {
@@ -97,17 +102,40 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		}
 	}()
 
-	dlProgress := prog.New(utils.Byte.FormatBinaryBytes)
-	dlProgress.SetNumTrackersExpected(it.Total())
-	if !viper.GetBool(consts.FlagDisableProgressPS) {
-		prog.EnablePS(ctx, dlProgress)
+	progress := opts.Progress
+	if progress == nil {
+		dlProgress := prog.New(utils.Byte.FormatBinaryBytes)
+		dlProgress.SetNumTrackersExpected(it.Total())
+		if !viper.GetBool(consts.FlagDisableProgressPS) {
+			prog.EnablePS(ctx, dlProgress)
+		}
+		progress = newProgress(dlProgress, it, opts)
+
+		go dlProgress.Render()
+		defer func() {
+			prog.Wait(ctx, dlProgress)
+
+			// Notify user if any messages were skipped due to deletion
+			// This is deferred to ensure it shows after progress rendering completes
+			if skipped := it.SkippedDeleted(); skipped > 0 {
+				deletedIDs := it.DeletedIDs()
+				if len(deletedIDs) <= 5 {
+					// Show all IDs if 5 or fewer
+					color.Yellow("⚠️  %d message(s) were skipped because they were deleted: %v", skipped, deletedIDs)
+				} else {
+					// Show first 5 and indicate there are more
+					color.Yellow("⚠️  %d message(s) were skipped because they were deleted: %v... and %d more",
+						skipped, deletedIDs[:5], len(deletedIDs)-5)
+				}
+			}
+		}()
 	}
 
 	options := downloader.Options{
 		Pool:     pool,
 		Threads:  viper.GetInt(consts.FlagThreads),
 		Iter:     it,
-		Progress: newProgress(dlProgress, it, opts),
+		Progress: progress,
 	}
 	limit := viper.GetInt(consts.FlagLimit)
 
@@ -119,25 +147,6 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		zap.Int("limit", limit))
 
 	color.Green("All files will be downloaded to '%s' dir", opts.Dir)
-
-	go dlProgress.Render()
-	defer func() {
-		prog.Wait(ctx, dlProgress)
-
-		// Notify user if any messages were skipped due to deletion
-		// This is deferred to ensure it shows after progress rendering completes
-		if skipped := it.SkippedDeleted(); skipped > 0 {
-			deletedIDs := it.DeletedIDs()
-			if len(deletedIDs) <= 5 {
-				// Show all IDs if 5 or fewer
-				color.Yellow("⚠️  %d message(s) were skipped because they were deleted: %v", skipped, deletedIDs)
-			} else {
-				// Show first 5 and indicate there are more
-				color.Yellow("⚠️  %d message(s) were skipped because they were deleted: %v... and %d more",
-					skipped, deletedIDs[:5], len(deletedIDs)-5)
-			}
-		}
-	}()
 
 	return downloader.New(options).Download(ctx, limit)
 }
