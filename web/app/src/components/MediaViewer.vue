@@ -56,8 +56,8 @@
             </div>
           </div>
 
-          <button v-if="index > 0" class="mv-nav left" @click="prev" title="上一个 (←)"><ChevronLeft :size="28" /></button>
-          <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="28" /></button>
+          <button v-if="index > 0" class="mv-nav left" @click="prev" title="上一个 (←)"><ChevronLeft :size="26" stroke-width="3" /></button>
+          <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="26" stroke-width="3" /></button>
         </div>
 
         <!-- 图片控制条：仅缩放操作，下载/影院已在顶部统一操作 -->
@@ -534,12 +534,14 @@ function fmtBytes(n) {
 
 .mv-nav {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
-  width: 42px; height: 58px; border: none; border-radius: var(--radius-sm); font-size: 26px;
-  background: rgba(255,255,255,.1); color: #fff; cursor: pointer; transition: .15s;
+  width: 44px; height: 44px; border: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.4); color: #fff; cursor: pointer; transition: .15s;
+  backdrop-filter: blur(4px);
 }
-.mv-nav:hover { background: rgba(255,255,255,.24); }
-.mv-nav.left { left: 8px; }
-.mv-nav.right { right: 8px; }
+.mv-nav:hover { background: rgba(0,0,0,.7); }
+.mv-nav.left { left: 12px; }
+.mv-nav.right { right: 12px; }
 
 .mv-controls { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: #fff; }
 .mv-cbtn {
