@@ -57,10 +57,6 @@
           </div>
         </div>
 
-        <!-- 上一个/下一个导航：放在视频区外两侧，不遮挡画面 -->
-        <button v-if="index > 0" class="mv-nav left" @click="prev" title="上一个 (←)"><ChevronLeft :size="26" stroke-width="3" /></button>
-        <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="26" stroke-width="3" /></button>
-
         <!-- 图片控制条：仅缩放操作，下载/影院已在顶部统一操作 -->
         <div v-if="!isVideo" class="mv-controls">
           <button class="mv-cbtn" @click="zoomStep(-0.2)" title="缩小"><ZoomOut :size="18" /></button>
@@ -70,6 +66,10 @@
           <div class="mv-flex" />
         </div>
       </div>
+
+      <!-- 上一个/下一个导航：放在卡片外两侧（overlay 层），不受卡片 overflow 裁切 -->
+      <button v-if="index > 0" class="mv-nav left" @click="prev" title="上一个 (←)"><ChevronLeft :size="26" stroke-width="3" /></button>
+      <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="26" stroke-width="3" /></button>
     </div>
   </teleport>
 </template>
@@ -536,16 +536,17 @@ function fmtBytes(n) {
 @keyframes mv-spin { to { transform: rotate(360deg); } }
 
 .mv-nav {
-  position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
   width: 44px; height: 44px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-panel); color: var(--text-2); cursor: pointer; transition: .15s;
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
 .mv-nav:hover { background: var(--accent); color: #fff; }
-.mv-nav.left { left: -56px; }
-.mv-nav.right { right: -56px; }
-/* 影院模式：卡片铺满视口，按钮回到内侧边缘（外侧无空间） */
+/* 普通模式：按钮在视口左右边缘（卡片居中，两侧是 overlay 空白区） */
+.mv-nav.left { left: 2vw; }
+.mv-nav.right { right: 2vw; }
+/* 影院模式：卡片铺满视口，按钮回到内侧边缘 */
 .mv-overlay.theater .mv-nav { background: rgba(0,0,0,.4); color: #fff; backdrop-filter: blur(4px); box-shadow: none; }
 .mv-overlay.theater .mv-nav:hover { background: rgba(0,0,0,.7); }
 .mv-overlay.theater .mv-nav.left { left: 12px; }
