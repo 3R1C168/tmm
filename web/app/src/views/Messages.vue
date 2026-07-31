@@ -4,6 +4,7 @@
     <aside class="chat-list" :style="{ width: chatListW + 'px' }">
       <div class="chat-search">
         <input v-model="search" placeholder="搜索会话…" />
+        <el-button class="chat-refresh-btn" size="small" text :loading="chatsLoading" @click="loadChats(true)" title="刷新会话列表"><RefreshCw :size="15" /></el-button>
       </div>
       <div class="chat-items" ref="chatListEl" v-loading="chatsLoading">
         <el-empty v-if="!chatsLoading && !filteredChats.length" description="暂无会话，请先登录" :image-size="60" />
@@ -23,9 +24,6 @@
           <span class="unread" v-if="c.unreadCount">{{ c.unreadCount > 99 ? '99+' : c.unreadCount }}</span>
         </div>
         <div v-if="visibleChatCount < allFilteredCount" ref="chatSentinelEl" class="load-more muted">加载更多…</div>
-      </div>
-      <div class="chat-foot">
-        <el-button size="small" text :loading="chatsLoading" @click="loadChats(true)"><RefreshCw :size="14" /> 刷新</el-button>
       </div>
       <div class="chat-resizer" @mousedown="startResizeChat"></div>
     </aside>
@@ -842,9 +840,10 @@ function fmtDate(ts) {
 .chat-list { flex: none; display: flex; flex-direction: column; background: var(--bg-panel); border-right: 1px solid var(--border); min-height: 0; position: relative; }
 .chat-resizer { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 5; }
 .chat-resizer:hover, .chat-resizer:active { background: var(--accent); opacity: .3; }
-.chat-search { padding: 12px 14px; }
-.chat-search input { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
+.chat-search { padding: 10px 12px; display: flex; align-items: center; gap: 6px; }
+.chat-search input { flex: 1; min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
 .chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chat-refresh-btn { flex: none; }
 .chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); }
 .chat-item:hover { border-color: var(--accent); }
@@ -855,7 +854,6 @@ function fmtDate(ts) {
 .chat-item .unread { min-width: 20px; height: 20px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; flex: none; }
 .chat-item .preview { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 .load-more { text-align: center; padding: 10px; font-size: 12px; }
-.chat-foot { padding: 8px 14px; border-top: 1px solid var(--border); }
 
 .chat-view { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); position: relative; }
 .chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
