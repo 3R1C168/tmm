@@ -3,8 +3,8 @@
     <div v-if="modelValue" class="mv-overlay" :class="{ theater }" @keydown="onKey" tabindex="-1" ref="overlayEl" @click.self="close">
       <!-- 居中卡片：按视频尺寸自适应，黑色只是衬底不是全屏遮罩；影院模式铺满视口 -->
       <div class="mv-card" :style="cardStyle" @click.stop>
-        <!-- 顶部信息栏 -->
-        <div class="mv-top">
+        <!-- 顶部信息栏（影院模式隐藏，改用浮层按钮） -->
+        <div class="mv-top" :class="{ 'theater-hide': theater }">
           <div class="mv-title">
             <div class="mv-name" :title="info?.name || item?.media?.name">{{ info?.name || item?.media?.name || '媒体' }}</div>
             <div class="mv-sub">
@@ -18,6 +18,13 @@
             <button class="mv-dl-top" @click="download" title="下载此媒体"><Download :size="16" /> 下载</button>
             <button class="mv-x" title="关闭 (Esc)" @click="close"><X :size="20" /></button>
           </div>
+        </div>
+
+        <!-- 影院模式浮层按钮：右上角悬浮，hover 显现，不占布局 -->
+        <div v-if="theater" class="mv-float-actions">
+          <button class="mv-icon-btn" @click="toggleTheater" title="退出影院模式 (Esc)"><Minimize :size="18" /></button>
+          <button class="mv-icon-btn" @click="download" title="下载此媒体"><Download :size="16" /></button>
+          <button class="mv-icon-btn" @click="close" title="关闭 (Esc)"><X :size="20" /></button>
         </div>
 
         <!-- 媒体区 -->
@@ -414,6 +421,13 @@ function fmtBytes(n) {
   max-width: 100vw; max-height: 100vh;
 }
 .mv-overlay.theater .mv-card { border-radius: 0; box-shadow: none; width: 100%; height: 100%; }
+/* 影院模式：隐藏顶栏，视频区铺满；右上角浮层按钮 hover 显现 */
+.mv-top.theater-hide { display: none; }
+.mv-float-actions { position: absolute; top: 12px; right: 12px; z-index: 20; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; }
+.mv-overlay.theater:hover .mv-float-actions,
+.mv-float-actions:hover { opacity: 1; }
+.mv-float-actions .mv-icon-btn { background: rgba(0,0,0,.5); color: #fff; backdrop-filter: blur(8px); }
+.mv-float-actions .mv-icon-btn:hover { background: rgba(0,0,0,.75); }
 .mv-top {
   flex: none; display: flex; align-items: center; justify-content: space-between;
   padding: 10px 16px; color: #fff; gap: 12px; min-height: 52px;
@@ -509,6 +523,7 @@ function fmtBytes(n) {
   padding: 24px 16px 8px !important;
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
+.mv-overlay.theater :deep(.plyr__controls) { border-radius: 0; }
 :deep(.plyr__controls__item) { margin-right: 8px; }
 
 /* 居中大播放按钮：半透明白毛玻璃 */
