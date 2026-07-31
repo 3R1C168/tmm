@@ -541,8 +541,8 @@ function fmtBytes(n) {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
   width: 44px; height: 44px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg-panel); color: var(--text-2); cursor: pointer; transition: .15s;
-  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  background: rgba(0,0,0,.3); color: #fff; cursor: pointer; transition: .15s;
+  backdrop-filter: blur(6px);
 }
 .mv-nav:hover { background: var(--accent); color: #fff; }
 /* 普通模式：按钮贴卡片外侧，留 12px 间隙不贴边 */
@@ -593,7 +593,6 @@ function fmtBytes(n) {
   display: flex !important; align-items: center !important;
   background: linear-gradient(to top, rgba(0,0,0,.8), transparent) !important;
   padding: 24px 16px 8px !important;
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 .mv-overlay.theater :deep(.plyr__controls) { border-radius: 0; }
 :deep(.plyr__controls__item) { margin-right: 8px; }
