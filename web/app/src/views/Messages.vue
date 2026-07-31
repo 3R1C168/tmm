@@ -1,0 +1,945 @@
+<template>
+  <div class="msg-wrap">
+    <!-- 左侧：会话列表 -->
+    <aside class="chat-list">
+      <div class="chat-search">
+        <input v-model="search" placeholder="搜索会话…" />
+      </div>
+      <div class="chat-items" ref="chatListEl" v-loading="chatsLoading">
+        <el-empty v-if="!chatsLoading && !filteredChats.length" description="暂无会话，请先登录" :image-size="60" />
+        <div
+          v-for="c in filteredChats"
+          :key="c.id"
+          class="chat-item"
+          :class="{ active: current && current.id === c.id }"
+          @click="selectChat(c)"
+        >
+          <div class="avatar" :style="{ background: avatarColor(c.id) }">
+            {{ (c.visibleName || c.username || '?').slice(0, 1).toUpperCase() }}
+          </div>
+          <div class="meta">
+            <div class="row1">
+              <span class="name">{{ c.visibleName || c.username || ('会话 ' + c.id) }}</span>
+              <span class="unread" v-if="c.unreadCount">{{ c.unreadCount > 99 ? '99+' : c.unreadCount }}</span>
+            </div>
+            <div class="preview">{{ typeLabel(c.type) }}<span v-if="c.username"> · @{{ c.username }}</span></div>
+          </div>
+        </div>
+        <div v-if="visibleChatCount < allFilteredCount" ref="chatSentinelEl" class="load-more muted">加载更多…</div>
+      </div>
+      <div class="chat-foot">
+        <el-button size="small" text :loading="chatsLoading" @click="loadChats(true)"><RefreshCw :size="14" /> 刷新</el-button>
+      </div>
+    </aside>
+
+    <!-- 右侧：消息流（最新在上） -->
+    <section class="chat-view">
+      <div v-if="!current" class="chat-empty">
+        <el-empty description="选择左侧会话查看消息，点击图片/视频可放大预览与下载" />
+      </div>
+
+      <template v-else>
+        <header class="chat-header">
+          <div class="avatar sm" :style="{ background: avatarColor(current.id) }">
+            {{ (current.visibleName || '?').slice(0, 1).toUpperCase() }}
+          </div>
+          <div class="hinfo">
+            <div class="title">{{ current.visibleName || current.username }}</div>
+            <div class="sub muted">{{ typeLabel(current.type) }}<span v-if="selected.size"> · 已选 {{ selected.size }} 条</span></div>
+          </div>
+          <div class="spacer" />
+          <el-checkbox v-model="mediaOnly" size="small" @change="reloadMessages">只看媒体</el-checkbox>
+          <el-button size="small" text :loading="msgsLoading" @click="reloadMessages(true)"><RefreshCw :size="14" /></el-button>
+          <el-button type="primary" size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
+          <el-button size="small" @click="rangeDialog = true">按范围下载</el-button>
+        </header>
+
+        <div class="msg-scroll">
+          <div v-if="reconnecting" class="loading-tip reconnect-tip">连接重连中，自动重试…</div>
+          <div v-if="msgsLoading && !displayItems.length && !reconnecting" class="loading-tip">加载中…</div>
+          <div v-if="!msgsLoading && !displayItems.length && !reconnecting" class="loading-tip muted">该会话暂无消息</div>
+
+          <DynamicScroller
+            ref="scrollerRef"
+            :key="'msgs-' + (current ? current.id : '')"
+            :items="displayItems"
+            :min-item-size="320"
+            class="scroller"
+            key-field="key"
+            @scroll="onMsgScroll"
+            @scroll-end="onMsgScroll"
+            v-slot="{ item, index, active }"
+          >
+            <DynamicScrollerItem
+              :item="item"
+              :active="active"
+              :size-dependencies="[item.msgs?.length, item.msg?.text]"
+              :data-index="index"
+            >
+              <div class="msg-row">
+                <!-- 相册（groupedId 聚合） -->
+                <div v-if="item.type === 'album'" class="msg" :class="{ out: item.out }">
+                  <el-checkbox
+                    class="pick"
+                    :model-value="item.msgs.every((x) => selected.has(x.id))"
+                    @change="toggleSelectAlbum(item)"
+                  />
+                  <div class="bubble album" :style="{ width: (albumLayout(item).width + 8) + 'px' }">
+                    <!-- 拼图布局（照 telegram-tt）：按宽高比拼，不裁正方形 -->
+                    <div class="album-mosaic" :style="{ width: albumLayout(item).width + 'px', height: albumLayout(item).height + 'px' }">
+                      <div
+                        v-for="(m, ci) in item.msgs"
+                        :key="m.id"
+                        class="album-cell"
+                        :style="albumCellStyle(item, ci)"
+                        @click="openViewer(m)"
+                      >
+                        <LazyThumb :src="api.mediaThumbUrl(current.id, m.id)" :placeholder="m.media?.stripped?.dataUri || ''" @load="onThumbLoad(m, $event)" @error="onThumbError" />
+                        <span v-if="isVideo(m.media)" class="cell-play"><Play :size="14" /></span>
+                      </div>
+                    </div>
+                    <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
+                    <div v-if="albumText(item)" class="text">{{ albumText(item) }}</div>
+                    <div class="meta">
+                      <button class="dl-group" @click.stop="downloadAlbum(item)"><Download :size="14" /> 下载整组({{ item.msgs.length }})</button>
+                      <span v-if="item.views"><Eye :size="12" /> {{ item.views }}</span>
+                      <span>{{ fmtDate(item.date) }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 单条消息 -->
+                <div v-else class="msg" :class="{ out: item.msg.out, selected: selected.has(item.msg.id) }">
+                  <el-checkbox class="pick" :model-value="selected.has(item.msg.id)" @change="toggleSelect(item.msg.id)" />
+                  <div class="bubble" :class="{ media: item.msg.hasMedia }" :style="item.msg.hasMedia && (isImage(item.msg.media) || isVideo(item.msg.media)) ? { width: (mediaWidth(item.msg) + 8) + 'px' } : {}">
+                    <div v-if="item.msg.hasMedia" class="media-box" @click="openViewer(item.msg)">
+                      <template v-if="isImage(item.msg.media) || isVideo(item.msg.media)">
+                        <div class="thumb-wrap" :style="thumbStyle(item.msg)">
+                          <LazyThumb :src="api.mediaThumbUrl(current.id, item.msg.id)" :placeholder="item.msg.media?.stripped?.dataUri || ''" @load="onThumbLoad(item.msg, $event)" @error="onThumbError" />
+                          <div v-if="isVideo(item.msg.media)" class="play-overlay">
+                            <span class="play-ico"><Play :size="20" /></span>
+                            <span class="dur">{{ fmtBytes(item.msg.media.size) }}</span>
+                          </div>
+                        </div>
+                      </template>
+                      <template v-else-if="isAudio(item.msg.media)">
+                        <!-- 音频：点击交给全局底部播放器（@click.stop 阻止冒泡触发 openViewer 误下载） -->
+                        <div class="audio-chip" :class="{ playing: player.current?.msgId === item.msg.id }" @click.stop="playAudio(item.msg)">
+                          <span class="fico"><Pause v-if="player.current?.msgId === item.msg.id && player.playing" :size="14" /><Play v-else :size="14" /></span>
+                          <div class="ainfo">
+                            <div class="aname" :title="item.msg.media.name">{{ item.msg.media.name }}</div>
+                            <div class="asub">{{ player.current?.msgId === item.msg.id ? (player.playing ? '播放中' : '已暂停') : '点击播放' }}</div>
+                          </div>
+                          <span class="fsize">{{ fmtBytes(item.msg.media.size) }}</span>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <div class="file-chip">
+                          <span class="fico"><FileText :size="18" /></span>
+                          <span class="fname" :title="item.msg.media.name">{{ item.msg.media.name }}</span>
+                          <span class="fsize">{{ fmtBytes(item.msg.media.size) }}</span>
+                        </div>
+                      </template>
+                    </div>
+                    <div v-if="item.msg.text" class="text">{{ item.msg.text }}</div>
+                    <div class="meta">
+                      <button class="dl-msg" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="14" /> 下载</button>
+                      <span v-if="item.msg.views"><Eye :size="12" /> {{ item.msg.views }}</span>
+                      <span>{{ fmtDate(item.msg.date) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </DynamicScrollerItem>
+          </DynamicScroller>
+
+          <div v-if="hasMore" class="loading-tip">
+            <el-button size="small" text :loading="loadingMore" @click="loadMore">{{ loadingMore ? '加载中…' : '加载更早的消息' }}</el-button>
+          </div>
+          <div v-else-if="displayItems.length" class="loading-tip muted">已到最早的消息</div>
+        </div>
+
+        <!-- 回到最新 -->
+        <button v-if="showBackTop" class="back-top" @click="backToTop" title="回到最新">↓ 最新</button>
+      </template>
+    </section>
+
+    <MediaViewer
+      v-model="viewer.show"
+      :list="mediaMessages"
+      :start-index="viewer.index"
+      :chat-id="current ? current.id : ''"
+      @download="downloadSingle"
+    />
+
+    <el-dialog v-model="rangeDialog" title="按范围下载" width="520px">
+      <el-form label-width="90px">
+        <el-form-item label="会话"><span>{{ current?.visibleName || current?.username }}</span></el-form-item>
+        <el-form-item label="范围">
+          <el-radio-group v-model="range.mode">
+            <el-radio value="all">全部媒体</el-radio>
+            <el-radio value="date">按日期</el-radio>
+            <el-radio value="count">最近 N 条</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="range.mode === 'date'" label="日期范围">
+          <div class="date-range-wrap">
+            <el-date-picker
+              v-model="range.dateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              :disabled-date="disableDateOutOfBounds"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              unlink-panels
+              clearable
+              style="width: 100%"
+            />
+            <div class="date-bounds-hint">
+              <span v-if="rangeDateBounds.loading" class="muted">正在探测频道日期范围…</span>
+              <span v-else-if="rangeDateBounds.min" class="muted">
+                频道媒体范围：{{ rangeDateBounds.min }} ～ {{ rangeDateBounds.max }}
+                <el-button link type="primary" size="small" @click="range.dateRange = [rangeDateBounds.min, rangeDateBounds.max]">选全部</el-button>
+              </span>
+              <span v-else class="muted">未探测到日期范围，可直接手动选择
+                <el-button link type="primary" size="small" @click="probeDateBounds(true)">重试</el-button>
+              </span>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="range.mode === 'count'" label="条数">
+          <el-input-number v-model="range.count" :min="1" :max="5000" />
+        </el-form-item>
+        <el-form-item label="类型过滤">
+          <el-input v-model="range.include" placeholder="包含扩展名，如 mp4,zip（留空全部）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="rangeDialog = false">取消</el-button>
+        <el-button @click="downloadAll" :loading="rangeLoading">全部下载</el-button>
+        <el-button type="primary" :loading="rangeLoading" @click="downloadRange">创建下载任务</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
+import 'vue-virtual-scroller/dist/vue-virtual-scroller.css'
+import { api } from '../api'
+import { useAppStore } from '../stores/app'
+import { usePlayerStore } from '../stores/player'
+import MediaViewer from '../components/MediaViewer.vue'
+import LazyThumb from '../components/LazyThumb.vue'
+import { Play, Pause, Download, RefreshCw, Eye, FileText } from 'lucide-vue-next'
+import { calculateAlbumLayout } from '../utils/albumLayout'
+
+const router = useRouter()
+const store = useAppStore()
+const player = usePlayerStore()
+
+const chats = ref([])
+const chatsLoading = ref(false)
+const search = ref('')
+const visibleChatCount = ref(30)
+const chatListEl = ref(null)
+const chatSentinelEl = ref(null)
+const current = ref(null)
+
+const messages = ref([])
+const msgsLoading = ref(false)
+const loadingMore = ref(false)
+const nextCursor = ref(0)
+const hasMore = ref(false)
+const mediaOnly = ref(false)
+const selected = ref(new Set())
+const showBackTop = ref(false)
+const scrollerRef = ref(null) // DynamicScroller，用于"定位到消息" + 滚动元素
+// 连接重连中提示：后端返回 503 时置 true，前端自动轮询重试
+const reconnecting = ref(false)
+
+const viewer = ref({ show: false, index: 0 })
+const rangeDialog = ref(false)
+const rangeLoading = ref(false)
+const range = ref({ mode: 'all', count: 100, include: '', dateRange: [] })
+// 频道媒体消息的日期边界（最早/最晚），切到"按日期"模式时懒探测。
+// 只翻少量页拿近似边界，避免对海量频道全量翻页触发大量 getHistory RPC。
+const rangeDateBounds = ref({ min: null, max: null, loading: false })
+let probedChatId = null // 已探测过的频道，切回不重复探测
+
+// per-chat session memory: { messages, nextCursor, hasMore, scrollTop, mediaOnly }
+const chatState = new Map()
+let msgAbort = null
+let retryTimer = null // 503 重连重试的定时器，切频道时清除
+
+const allFilteredCount = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return chats.value.length
+  return chats.value.filter((c) =>
+    (c.visibleName || '').toLowerCase().includes(q) || (c.username || '').toLowerCase().includes(q)).length
+})
+
+const filteredChats = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  const list = [...chats.value]
+  const filtered = !q ? list : list.filter((c) =>
+    (c.visibleName || '').toLowerCase().includes(q) || (c.username || '').toLowerCase().includes(q))
+  return filtered.slice(0, visibleChatCount.value)
+})
+
+// group consecutive messages with the same groupedId into albums.
+const displayItems = computed(() => {
+  // key 必须跨频道唯一：Telegram 消息 ID 是 per-chat 的（每频道从 1 开始），
+  // 不同频道的 msg 100 会产生相同 key 'msg-100'，导致 DynamicScroller 切频道时
+  // 复用旧 DOM -> 旧频道的缩略图错误显示在新频道消息上。加 chatId 前缀。
+  const chatKey = current.value?.id || '0'
+  const items = []
+  const seen = new Map()
+  for (const m of messages.value) {
+    if (m.groupedId && m.hasMedia && (isImage(m.media) || isVideo(m.media))) {
+      if (seen.has(m.groupedId)) {
+        items[seen.get(m.groupedId)].msgs.push(m)
+      } else {
+        seen.set(m.groupedId, items.length)
+        items.push({
+          type: 'album', key: chatKey + '-album-' + m.groupedId, groupedId: m.groupedId,
+          msgs: [m], out: m.out, date: m.date, views: m.views,
+        })
+      }
+    } else {
+      items.push({ type: 'msg', key: chatKey + '-msg-' + m.id, msg: m })
+    }
+  }
+  return items
+})
+
+const mediaMessages = computed(() => messages.value.filter((m) => m.hasMedia && (isImage(m.media) || isVideo(m.media))))
+
+// Lazy-load more chats when the sentinel scrolls into view.
+let chatObserver = null
+function setupChatObserver() {
+  if (chatObserver) chatObserver.disconnect()
+  chatObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting && visibleChatCount.value < allFilteredCount.value) {
+        visibleChatCount.value += 30
+      }
+    }
+  }, { root: chatListEl.value, rootMargin: '200px' })
+  if (chatSentinelEl.value) chatObserver.observe(chatSentinelEl.value)
+}
+
+onMounted(async () => {
+  await loadChats()
+  await nextTick()
+  setupChatObserver()
+})
+// 滚动元素 = DynamicScroller 的根 .vue-recycle-scroller（自带 overflow-y:auto）
+// 外层 .msg-scroll 不再滚动，避免双层滚动脱节导致 loadMore 不触发
+function scrollEl() {
+  return scrollerRef.value?.$el || null
+}
+
+watch(chatSentinelEl, () => { setupChatObserver() })
+
+// 同步当前频道的音频消息到全局播放器队列（prev/next 用）。
+// watch messages+current，任何路径更新（reload/loadMore/backfill/切频道）
+// 都会自动同步，且不会打断正在后台播放的歌。
+watch([messages, current], () => {
+  if (current.value) player.setQueue(messages.value, current.value.id)
+}, { deep: false })
+
+async function loadChats(refresh = false) {
+  chatsLoading.value = true
+  try {
+    const r = await api.listChats(refresh)
+    chats.value = r.chats || []
+  } catch (e) { ElMessage.error(e.message) } finally { chatsLoading.value = false }
+}
+
+function selectChat(c) {
+  // 先 abort 旧请求，防止旧数据覆盖新会话
+  abortPending()
+  if (current.value) saveChatState(current.value.id)
+  current.value = c
+  selected.value = new Set()
+  // 切频道时重置按范围下载状态，避免旧频道探测结果/日期残留
+  rangeDialog.value = false
+  probedChatId = null
+  rangeDateBounds.value = { min: null, max: null, loading: false }
+  // 立即清空消息和布局缓存，避免新频道渲染瞬间残留旧频道的消息/缩略图
+  albumLayoutCache.clear()
+
+  const saved = chatState.get(c.id)
+  if (saved) {
+    messages.value = saved.messages
+    nextCursor.value = saved.nextCursor
+    hasMore.value = saved.hasMore
+    mediaOnly.value = saved.mediaOnly
+    nextTick(() => { const el = scrollEl(); if (el) el.scrollTop = saved.scrollTop })
+  } else {
+    // 无缓存：立即清空，reloadMessages 里也会清，但这里提前清避免旧消息闪现
+    messages.value = []
+    nextCursor.value = 0
+    hasMore.value = false
+    reloadMessages()
+  }
+}
+
+function saveChatState(id) {
+  // 不保存加载中的空状态：若 messages 还是空的（reloadMessages 尚未返回），
+  // 存进 chatState 会让下次切回该频道命中空缓存，误显示"暂无消息"。
+  if (!messages.value || messages.value.length === 0) return
+  chatState.set(id, {
+    messages: messages.value,
+    nextCursor: nextCursor.value,
+    hasMore: hasMore.value,
+    mediaOnly: mediaOnly.value,
+    scrollTop: scrollEl() ? scrollEl().scrollTop : 0,
+  })
+}
+
+function abortPending() {
+  if (msgAbort) { msgAbort.abort(); msgAbort = null }
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+}
+
+function warmupThumbs() {
+  if (!current.value) return
+  const chatId = current.value.id
+  const ids = messages.value.filter((m) => m.hasMedia).slice(0, 30).map((m) => m.id)
+  let i = 0
+  const step = () => {
+    if (i >= ids.length || !current.value || current.value.id !== chatId) return
+    const img = new Image()
+    img.src = api.mediaThumbUrl(chatId, ids[i++])
+    img.onload = img.onerror = () => setTimeout(step, 60)
+  }
+  for (let k = 0; k < 4; k++) setTimeout(step, k * 80)
+}
+
+async function reloadMessages(refresh = false) {
+  if (!current.value) return
+  await loadMessagesWithRetry(current.value.id, refresh)
+}
+
+// loadMessagesWithRetry 加载消息，遇到 503（连接重连中）时自动轮询重试。
+// 最多重试 8 次，间隔 3s（总上限 ~24s），期间显示"连接重连中"提示。
+// 成功或非 503 错误则正常返回。切频道时 abortPending 清除定时器终止循环。
+async function loadMessagesWithRetry(chatId, refresh) {
+  const MAX_RETRY = 8
+  const RETRY_INTERVAL = 3000
+  for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+    if (current.value?.id !== chatId) return // 已切走
+    abortPending()
+    msgAbort = new AbortController()
+    const signal = msgAbort.signal
+    msgsLoading.value = true
+    if (attempt === 0) {
+      // 首次清空，避免停留在旧频道内容的错觉
+      messages.value = []
+      albumLayoutCache.clear()
+      nextTick(() => { const el = scrollEl(); if (el) el.scrollTop = 0 })
+    }
+    try {
+      const r = await api.listMessages(chatId, { limit: 50, mediaOnly: mediaOnly.value, refresh, signal })
+      if (current.value?.id !== chatId) return // 已切走
+      reconnecting.value = false
+      msgsLoading.value = false
+      messages.value = r.messages || []
+      nextCursor.value = r.nextCursor || 0
+      hasMore.value = (r.messages || []).length > 0 && r.nextCursor > 0
+      // 数据到达后强制 scroller 定位到第一条（最新消息）：DynamicScroller 在
+      // items 从空增长时内部偏移可能错乱（最新消息被推到视口外 -9864px），
+      // scrollTop=0 不够（偏移是内部 itemSize 累积），用 scrollToItem(0) 让
+      // 虚拟滚动按实测高度重排到顶部。
+      nextTick(() => {
+        try {
+          if (scrollerRef.value?.scrollToItem) scrollerRef.value.scrollToItem(0)
+        } catch { /* 首屏偶发，非致命 */ }
+      })
+      warmupThumbs()
+      if (hasMore.value) backfill(chatId, signal)
+      return
+    } catch (e) {
+      if (e.name === 'AbortError') return // 切走取消
+      // 503 = 连接重连中：显示提示，延迟后重试
+      if (e.status === 503 && attempt < MAX_RETRY && current.value?.id === chatId) {
+        reconnecting.value = true
+        msgsLoading.value = false
+        await new Promise((resolve) => { retryTimer = setTimeout(resolve, RETRY_INTERVAL) })
+        retryTimer = null
+        continue
+      }
+      // 非 503 或重试耗尽：显示错误
+      reconnecting.value = false
+      msgsLoading.value = false
+      if (e.status === 503) ElMessage.warning('连接重连超时，请稍后手动刷新')
+      else ElMessage.error(e.message)
+      return
+    }
+  }
+}
+
+// backfill fetches the next page in the background right after the first
+// screen renders, so scrolling down doesn't hit an unloaded gap.
+async function backfill(chatId, signal) {
+  try {
+    const r = await api.listMessages(chatId, { offsetId: nextCursor.value, limit: 200, mediaOnly: mediaOnly.value, signal })
+    if (current.value?.id !== chatId) return
+    const older = r.messages || []
+    if (older.length) {
+      messages.value = [...messages.value, ...older]
+      nextCursor.value = r.nextCursor || 0
+      hasMore.value = r.nextCursor > 0
+    }
+  } catch (e) { if (e.name !== 'AbortError') { /* backfill failure is non-fatal */ } }
+}
+
+async function loadMore() {
+  if (!current.value || !nextCursor.value || loadingMore.value) return
+  abortPending()
+  msgAbort = new AbortController()
+  loadingMore.value = true
+  try {
+    const r = await api.listMessages(current.value.id, { offsetId: nextCursor.value, limit: 200, mediaOnly: mediaOnly.value, signal: msgAbort.signal })
+    const older = r.messages || []
+    messages.value = [...messages.value, ...older]
+    nextCursor.value = r.nextCursor || 0
+    hasMore.value = older.length > 0 && r.nextCursor > 0
+  } catch (e) {
+    if (e.name !== 'AbortError') ElMessage.error(e.message)
+  } finally { loadingMore.value = false }
+}
+
+function onMsgScroll() {
+  const el = scrollEl()
+  if (!el) return
+  // 提前到距底部 600px 就加载更早消息，配合服务端 warmup，
+  // 滑到的时候缩略图已缓存，不会卡在"刚加载还没下载"的状态
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 600 && hasMore.value && !loadingMore.value) {
+    loadMore()
+  }
+  showBackTop.value = el.scrollTop > 400
+}
+
+function backToTop() {
+  if (scrollEl()) scrollEl().scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function toggleSelect(id) {
+  const s = new Set(selected.value)
+  if (s.has(id)) s.delete(id); else s.add(id)
+  selected.value = s
+}
+
+function toggleSelectAlbum(album) {
+  const s = new Set(selected.value)
+  const all = album.msgs.every((x) => s.has(x.id))
+  for (const m of album.msgs) { if (all) s.delete(m.id); else s.add(m.id) }
+  selected.value = s
+}
+
+function isImage(media) { return media && /\.(jpe?g|png|gif|webp|bmp)$/i.test(media.name) }
+function isVideo(media) { return media && /\.(mp4|mov|mkv|webm|avi)$/i.test(media.name) }
+function isAudio(media) { return media && (/\.(mp3|m4a|aac|ogg|opus|flac|wav)$/i.test(media.name) || /^audio\//i.test(media.mime || '')) }
+
+function albumText(album) {
+  for (const m of album.msgs) { if (m.text && m.text.trim()) return m.text }
+  return ''
+}
+
+// --- 相册拼图布局（照 telegram-tt calculateAlbumLayout） ---
+const albumLayoutCache = new Map()
+function albumLayout(album) {
+  const cached = albumLayoutCache.get(album.key)
+  if (cached) return cached
+  const ratios = album.msgs.map((m) => {
+    const w = m.media?.width, h = m.media?.height
+    if (w && h) return w / h
+    const d = mediaDims.get(mediaDimKey(m))
+    if (d && d.w && d.h) return d.w / d.h
+    return 1
+  })
+  const layout = calculateAlbumLayout(ratios, MEDIA_MAX_W, 2)
+  albumLayoutCache.set(album.key, layout)
+  return layout
+}
+function albumCellStyle(album, ci) {
+  const it = albumLayout(album).items[ci] || { x: 0, y: 0, width: 100, height: 100 }
+  return {
+    position: 'absolute',
+    left: it.x + 'px', top: it.y + 'px',
+    width: it.width + 'px', height: it.height + 'px',
+  }
+}
+
+// media natural dimensions (plain Map, NOT reactive — no re-render on decode).
+// key 带 chatId：消息 ID 是 per-chat 的，裸 ID 跨频道会串用旧频道的自然尺寸
+// （和 DynamicScroller key 串台是同一类问题，见 displayItems 的 chatKey 前缀）。
+const mediaDims = new Map()
+function mediaDimKey(m) { return (current.value?.id ?? '0') + ':' + m.id }
+
+function onThumbLoad(m, e) {
+  const img = e.target
+  if (img && img.naturalWidth && !mediaDims.has(mediaDimKey(m))) {
+    mediaDims.set(mediaDimKey(m), { w: img.naturalWidth, h: img.naturalHeight })
+  }
+}
+
+const MEDIA_MAX_W = 464   // tt: 29rem = 464px
+const MEDIA_MAX_H = 432   // tt: 27rem = 432px
+const MEDIA_MIN_W = 192   // tt: 12rem = 192px
+
+// mediaWidth returns the rendered pixel width of a message's media, so the
+// bubble can size itself to the media (text wraps inside it) instead of
+// letting long text stretch the bubble wider than the media — which left an
+// empty gutter on the media's right. Mirrors tt's calculateDimensions.
+function mediaWidth(m) {
+  let w0 = m.media?.width, h0 = m.media?.height
+  if (!w0 || !h0) {
+    const d = mediaDims.get(mediaDimKey(m))
+    if (d && d.w && d.h) { w0 = d.w; h0 = d.h }
+  }
+  if (!w0 || !h0) return MEDIA_MAX_W
+  let w = Math.min(w0, MEDIA_MAX_W)
+  let h = Math.round(w * (h0 / w0))
+  if (h > MEDIA_MAX_H) {
+    h = MEDIA_MAX_H
+    w = Math.round(h * (w0 / h0))
+  }
+  const minW = MEDIA_MIN_W
+  if (w < minW && minW - w < 12) {
+    w = minW
+  }
+  return w
+}
+
+function thumbStyle(m) {
+  let w0 = m.media?.width, h0 = m.media?.height
+  if (!w0 || !h0) {
+    const d = mediaDims.get(mediaDimKey(m))
+    if (d && d.w && d.h) { w0 = d.w; h0 = d.h }
+  }
+  if (!w0 || !h0) {
+    return { width: MEDIA_MAX_W + 'px', aspectRatio: '4 / 3' }
+  }
+  return { width: mediaWidth(m) + 'px', aspectRatio: w0 + ' / ' + h0 }
+}
+
+function openViewer(m) {
+  if (!isImage(m.media) && !isVideo(m.media)) { downloadSingle(m); return }
+  const idx = mediaMessages.value.findIndex((x) => x.id === m.id)
+  viewer.value = { show: true, index: Math.max(0, idx) }
+}
+
+// 点击音频 chip：交给全局底部播放器（单实例互斥，滚动/切频道不断播）
+function playAudio(m) {
+  if (!current.value) return
+  player.setQueue(messages.value, current.value.id)
+  player.play({ chatId: current.value.id, msgId: m.id, name: m.media.name, size: m.media.size })
+}
+
+// 定位到消息：在 displayItems（相册聚合后）里找该消息的索引并滚动过去
+function scrollToMsg(msgId) {
+  const idx = displayItems.value.findIndex((it) => it.type === 'msg' && it.msg?.id === msgId)
+  if (idx >= 0 && scrollerRef.value) {
+    scrollerRef.value.scrollToItem(idx)
+  }
+}
+// 全局播放器"定位到消息"：player.locateMsgId 变化时滚动
+watch(() => player.locateMsgId, (id) => {
+  if (id) nextTick(() => scrollToMsg(id))
+})
+// 切到"按日期"模式才懒探测频道日期边界（不在打开对话框时探测，
+// 避免对海量频道连发 getHistory RPC 拖垮切频道/媒体加载）
+watch(() => range.value.mode, (mode) => {
+  if (mode === 'date') probeDateBounds()
+})
+
+function onThumbError() { /* LazyThumb 内部处理：404 时保留清晰 placeholder，无需降透明度 */ }
+
+async function downloadSelected() {
+  if (!selected.value.size || !current.value) return
+  await createTask([{ chatId: String(current.value.id), msgIds: [...selected.value] }], {})
+}
+async function downloadSingle(m) {
+  await createTask([{ chatId: String(current.value.id), msgIds: [m.id] }], {})
+}
+async function downloadAlbum(album) {
+  const ids = album.msgs.map((m) => m.id)
+  await createTask([{ chatId: String(current.value.id), msgIds: ids }], { group: true })
+}
+// 把 unix 秒戳格式化成 YYYY-MM-DD（本地时区），用于日期边界与过滤
+function dateStrFromTs(ts) {
+  if (!ts) return null
+  const d = new Date(ts * 1000)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+// [start, end] 闭区间，start/end 为 'YYYY-MM-DD'，返回 [startTs00:00, endTs23:59:59]（秒）
+function dateRangeToTsBounds(start, end) {
+  const s = start ? Math.floor(new Date(start + 'T00:00:00').getTime() / 1000) : -Infinity
+  const e = end ? Math.floor(new Date(end + 'T23:59:59').getTime() / 1000) : Infinity
+  return [s, e]
+}
+
+// 探测频道媒体消息的日期边界，作为日期选择参考。
+// 设计要点：绝不全量翻页（曾因此对海量频道连发几十次 getHistory RPC，
+// 触发网络抖动导致切频道/媒体加载卡死）。只取首页拿最新日期，再翻少量
+// 页拿一个近似的最早日期作为参考下界；用户实际选择时仍可自由输入。
+// 串行、限页、同频道只探测一次。
+async function probeDateBounds(force = false) {
+  const chatId = current.value?.id
+  if (!chatId) return
+  if (!force && probedChatId === chatId && rangeDateBounds.value.min) return
+  probedChatId = chatId
+  rangeDateBounds.value = { min: null, max: null, loading: true }
+  try {
+    const first = await api.listMessages(chatId, { offsetId: 0, limit: 100, mediaOnly: true })
+    const batch = (first.messages || []).filter((m) => m.hasMedia)
+    if (!batch.length) { rangeDateBounds.value = { min: null, max: null, loading: false }; return }
+    const max = dateStrFromTs(batch[0].date) // 首页第一条最新
+    // 最早日期：最多再翻 3 页取一个近似下界，避免海量频道全量翻页。
+    let cursor = first.nextCursor || 0
+    let lastBatch = batch
+    for (let i = 0; i < 3 && cursor; i++) {
+      const r = await api.listMessages(chatId, { offsetId: cursor, limit: 100, mediaOnly: true })
+      const b = (r.messages || []).filter((m) => m.hasMedia)
+      if (!b.length) break
+      lastBatch = b
+      cursor = r.nextCursor || 0
+    }
+    const min = dateStrFromTs(lastBatch[lastBatch.length - 1].date)
+    rangeDateBounds.value = { min, max, loading: false }
+  } catch (e) {
+    rangeDateBounds.value = { min: null, max: null, loading: false }
+  }
+}
+function disableDateOutOfBounds(d) {
+  if (!rangeDateBounds.value.max) return false
+  // 只禁未来日期（超过频道最新消息）；最早下界是近似值（仅翻 3 页），
+  // 不强制禁用以免误挡合法的更早消息，用户可自由选择。
+  const max = new Date(rangeDateBounds.value.max + 'T23:59:59').getTime()
+  return d.getTime() > max
+}
+
+// "全部下载"：跳过范围设定，直接下载该频道全部媒体
+async function downloadAll() {
+  range.value.mode = 'all'
+  await downloadRange()
+}
+
+async function downloadRange() {
+  rangeLoading.value = true
+  try {
+    // 日期模式校验
+    if (range.value.mode === 'date') {
+      const dr = range.value.dateRange
+      if (!dr || dr.length !== 2 || !dr[0] || !dr[1]) {
+        ElMessage.warning('请选择日期范围'); return
+      }
+    }
+    const ids = []
+    let cursor = 0
+    const [lo, hi] = range.value.mode === 'date'
+      ? dateRangeToTsBounds(range.value.dateRange[0], range.value.dateRange[1])
+      : [-Infinity, Infinity]
+    const want = range.value.mode === 'count' ? range.value.count : Infinity
+    // 消息按时间倒序返回：先经过 hi 上界，进入 [lo,hi] 区间收集，越过 lo 下界即提前停止。
+    let stop = false
+    while (ids.length < want && !stop) {
+      const r = await api.listMessages(current.value.id, { offsetId: cursor, limit: 100, mediaOnly: true })
+      const batch = r.messages || []
+      if (!batch.length) break
+      for (const m of batch) {
+        if (!m.hasMedia) continue
+        // 比当前 hi 新 → 还未进入区间，跳过
+        if (m.date > hi) continue
+        // 比当前 lo 旧 → 已越过区间下界，停止整次收集
+        if (m.date < lo) { stop = true; break }
+        ids.push(m.id)
+        if (ids.length >= want) break
+      }
+      cursor = r.nextCursor || 0
+      if (!cursor) break
+    }
+    if (!ids.length) { ElMessage.warning('该范围内没有媒体消息'); return }
+    const include = range.value.include.split(',').map((x) => x.trim()).filter(Boolean)
+    await createTask([{ chatId: String(current.value.id), msgIds: ids }], { include })
+    rangeDialog.value = false
+  } finally { rangeLoading.value = false }
+}
+
+async function createTask(sel, extraOpts) {
+  const account = store.authorizedAccount
+  if (!account) { ElMessage.warning('请先登录账号'); router.push('/login'); return }
+  try {
+    await api.createTask({
+      account: account.ns, urls: [], selected: sel,
+      opts: { takeout: 'auto', group: true, skipSame: true, ...extraOpts },
+    })
+    ElMessage.success('下载任务已创建')
+    selected.value = new Set()
+    router.push('/tasks')
+  } catch (e) { ElMessage.error(e.message) }
+}
+
+function typeLabel(t) { return { private: '私聊', group: '群组', channel: '频道' }[t] || t }
+function avatarColor(id) {
+  const palette = ['#4f7cff', '#22b07d', '#f79009', '#f04438', '#8b5cf6', '#06b6d4', '#ec4899']
+  return palette[Math.abs(Number(id) || 0) % palette.length]
+}
+function fmtBytes(n) {
+  if (!n) return '0 B'
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
+  return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${u[i]}`
+}
+function fmtDate(ts) {
+  if (!ts) return ''
+  return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+</script>
+
+<style scoped>
+.msg-wrap { flex: 1; display: flex; min-height: 0; }
+.chat-list { width: 300px; flex: none; display: flex; flex-direction: column; background: var(--bg-panel); border-right: 1px solid var(--border); min-height: 0; }
+.chat-search { padding: 12px 14px; }
+.chat-search input { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
+.chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chat-items { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+.chat-item { display: flex; gap: 11px; padding: 10px; border-radius: var(--radius-sm); cursor: pointer; transition: .13s; align-items: center; }
+.chat-item:hover { background: var(--bg-hover); }
+.chat-item.active { background: var(--bg-active); }
+.avatar { width: 46px; height: 46px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 16px; }
+.avatar.sm { width: 38px; height: 38px; font-size: 14px; }
+.chat-item .meta { flex: 1; min-width: 0; }
+.chat-item .row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-item .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-item .unread { min-width: 19px; height: 19px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; flex: none; }
+.chat-item .preview { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.load-more { text-align: center; padding: 10px; font-size: 12px; }
+.chat-foot { padding: 8px 14px; border-top: 1px solid var(--border); }
+
+.chat-view { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); position: relative; }
+.chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+.chat-header { height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 18px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+.chat-header .hinfo { min-width: 0; }
+.chat-header .title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-header .sub { font-size: 12px; }
+.chat-header .spacer { flex: 1; }
+
+.msg-scroll { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0; }
+/* DynamicScroller 自带 overflow-y:auto 作为唯一滚动容器（.vue-recycle-scroller），
+   不再用外层 .msg-scroll 滚动——之前 height:100% 把它的内容高度钳制到视口高，
+   导致虚拟滚动 padding 撑不开、外层 scrollHeight 只有 ~648px、loadMore 不触发、
+   相册多图 cell 被定位到视口外(-9864px)永远不加载真实缩略图 */
+.msg-scroll .scroller { flex: 1; min-height: 0; padding: 16px 24px 20px; }
+.loading-tip { text-align: center; padding: 8px 0; font-size: 12.5px; }
+.reconnect-tip { color: var(--accent, #4f7cff); animation: reconnect-pulse 1.4s ease-in-out infinite; }
+@keyframes reconnect-pulse { 0%,100% { opacity: .5 } 50% { opacity: 1 } }
+.msg-stack { display: flex; flex-direction: column; align-items: flex-start; }
+.msg-row { padding: 3px 0; width: 100%; }
+/* telegram-tt 布局：flex 行，内容定宽，CSS max-width 封顶 */
+.msg { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.msg.out { flex-direction: row-reverse; margin-left: auto; }
+.msg .pick { flex: none; margin-top: 10px; }
+.msg.selected .bubble { outline: 2px solid var(--accent); }
+
+/* 气泡：内容宽度，CSS max-width 封顶（tt: 29rem = 464px） */
+.bubble {
+  position: relative;
+  padding: 9px 12px 8px; /* 纯文字气泡：上下 9/8px，左右 12px，不贴边（tt 文字气泡比媒体气泡 padding 大） */
+  border-radius: var(--radius-lg); /* tt: 1rem */
+  background: var(--bg-panel);
+  box-shadow: 0 1px 2px rgba(0,0,0,.13);
+  min-width: 200px;
+  max-width: 464px; /* tt: 29rem */
+  width: max-content; /* 内容定宽 */
+  font-size: 13px;
+  line-height: 1.3125; /* tt 行高 */
+}
+.bubble.media { padding: 4px; overflow: hidden; max-width: 472px; box-sizing: border-box; }
+.bubble.media .text, .bubble.media .meta { padding: 4px 8px 0; }
+/* 相册气泡同样定宽到拼图宽度，文字在媒体宽度内换行，右侧不留白 */
+.bubble.album { padding: 4px; max-width: 472px; overflow: hidden; box-sizing: border-box; }
+.bubble.album .text, .bubble.album .meta { padding: 4px 8px 2px; }
+.msg.out .bubble { background: var(--accent-soft); }
+
+/* 文字：不折叠，完整显示（对齐 Telegram 桌面端行为） */
+.bubble .text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  line-height: 1.3125;
+}
+.bubble .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); margin-top: 3px; user-select: none; }
+
+.media-box { cursor: zoom-in; }
+.thumb-wrap { position: relative; border-radius: var(--radius); overflow: hidden; }
+.thumb { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--bg-hover); border-radius: var(--radius); }
+.play-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.play-ico { width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: .15s; }
+.thumb-wrap:hover .play-ico { background: rgba(0,0,0,.7); transform: scale(1.06); }
+.play-overlay .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); }
+
+/* 文件卡片：内容宽度 */
+.file-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); max-width: 100%; box-sizing: border-box; }
+.file-chip .fico { font-size: 18px; }
+.file-chip .fname { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-chip .fsize { font-size: 12px; color: var(--text-2); flex: none; }
+
+/* 音频消息：点击交给全局底部播放器 */
+.audio-chip {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  max-width: 320px; box-sizing: border-box; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: .15s;
+}
+.audio-chip:hover { background: var(--bg-hover); }
+.audio-chip.playing { border-color: var(--accent); background: var(--accent-soft); }
+.audio-chip .fico {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.audio-chip .ainfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.audio-chip .aname { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audio-chip .asub { font-size: 11px; color: var(--text-3); }
+.audio-chip.playing .asub { color: var(--accent); }
+.audio-chip .fsize { font-size: 12px; color: var(--text-2); flex: none; }
+
+/* 相册（拼图布局，照 telegram-tt） */
+.album-mosaic { position: relative; overflow: hidden; max-width: 100%; border-radius: var(--radius); }
+.album-cell { position: absolute; overflow: hidden; cursor: zoom-in; background: var(--bg-hover); }
+.album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; background: rgba(0,0,0,.25); }
+.bubble.album .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.dl-group { border: none; background: transparent; color: var(--accent); font-size: 11px; cursor: pointer; padding: 0; }
+.dl-group:hover { text-decoration: underline; }
+.dl-msg { border: none; background: transparent; color: var(--accent); font-size: 11px; cursor: pointer; padding: 0; }
+.dl-msg:hover:not(:disabled) { text-decoration: underline; }
+.dl-msg:disabled { color: var(--text-3); opacity: .4; cursor: default; }
+
+/* 回到最新 */
+.back-top {
+  position: absolute; right: 24px; bottom: 24px; z-index: 10;
+  border: none; border-radius: 20px; padding: 8px 16px; cursor: pointer;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25); transition: .15s;
+}
+.back-top:hover { filter: brightness(1.1); }
+
+/* 按范围下载 - 日期选择 */
+.date-range-wrap { width: 100%; }
+.date-bounds-hint { margin-top: 6px; font-size: 12px; min-height: 18px; }
+.date-bounds-hint .muted { color: var(--text-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+</style>
