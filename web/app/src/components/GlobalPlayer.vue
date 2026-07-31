@@ -116,12 +116,11 @@ function fmtTime(sec) {
   gap: 8px;
   width: min(880px, calc(100vw - 48px));
   padding: 10px 16px;
-  background: rgba(24, 26, 32, 0.92);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  color: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  color: var(--text);
 }
 
 /* 第一行：文件名 + 时间，独占一行可换行，长文件名也能显示完整 */
@@ -141,8 +140,8 @@ function fmtTime(sec) {
   flex: 1; min-width: 0;
   transition: color .15s;
 }
-.gp-time { font-size: 11px; color: rgba(255,255,255,.55); flex: none; white-space: nowrap; }
-.gp-err { color: #ff7a7a; font-size: 11px; flex: none; }
+.gp-time { font-size: 11px; color: var(--text-3); flex: none; white-space: nowrap; }
+.gp-err { color: var(--red); font-size: 11px; flex: none; }
 
 /* 第二行：进度条 + 控件，单行 */
 .gp-row { display: flex; align-items: center; gap: 12px; }
@@ -150,12 +149,12 @@ function fmtTime(sec) {
 .gp-cover {
   width: 20px; height: 20px; flex: none;
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px;
+  color: var(--text-2);
 }
 .gp-progress {
   flex: 1;
   height: 4px;
-  accent-color: var(--accent, #4f7cff);
+  accent-color: var(--accent);
   cursor: pointer;
 }
 .gp-progress:disabled { opacity: .4; cursor: default; }
@@ -164,23 +163,23 @@ function fmtTime(sec) {
 .gp-btn {
   width: 32px; height: 32px; flex: none;
   border: none; border-radius: 50%; background: transparent;
-  color: #fff; font-size: 15px; cursor: pointer;
+  color: var(--text); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: background .15s;
 }
-.gp-btn:hover:not(:disabled) { background: rgba(255,255,255,.12); }
+.gp-btn:hover:not(:disabled) { background: var(--bg-hover); }
 .gp-btn:disabled { opacity: .35; cursor: default; }
 .gp-play {
   width: 36px; height: 36px;
-  background: var(--accent, #4f7cff);
-  font-size: 16px;
+  background: var(--accent);
+  color: #fff;
 }
-.gp-play:hover:not(:disabled) { background: var(--accent, #4f7cff); filter: brightness(1.1); }
+.gp-play:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
 
 .gp-volume { display: flex; align-items: center; gap: 4px; flex: none; }
-.gp-vol-slider { width: 64px; height: 4px; accent-color: var(--accent, #4f7cff); cursor: pointer; }
+.gp-vol-slider { width: 64px; height: 4px; accent-color: var(--accent); cursor: pointer; }
 
-.gp-close { font-size: 13px; }
+.gp-close { color: var(--text-3); }
 
 /* 进出场动画 */
 .gp-enter-active, .gp-leave-active { transition: all .25s ease; }
