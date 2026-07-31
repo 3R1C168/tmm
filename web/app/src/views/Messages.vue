@@ -4,7 +4,10 @@
     <aside class="chat-list" :style="{ width: chatListW + 'px' }">
       <div class="chat-search">
         <input v-model="search" placeholder="搜索会话…" />
-        <el-button class="chat-refresh-btn" size="small" text :loading="chatsLoading" @click="loadChats(true)" title="刷新会话列表"><RefreshCw :size="15" /></el-button>
+        <button class="chat-refresh-btn" :disabled="chatsLoading" @click="loadChats(true)" title="刷新会话列表">
+          <RefreshCw v-if="!chatsLoading" :size="15" />
+          <Loader2 v-else :size="15" class="spin" />
+        </button>
       </div>
       <div class="chat-items" ref="chatListEl" v-loading="chatsLoading">
         <el-empty v-if="!chatsLoading && !filteredChats.length" description="暂无会话，请先登录" :image-size="60" />
@@ -238,7 +241,7 @@ import { useAppStore } from '../stores/app'
 import { usePlayerStore } from '../stores/player'
 import MediaViewer from '../components/MediaViewer.vue'
 import LazyThumb from '../components/LazyThumb.vue'
-import { Play, Pause, Download, RefreshCw, Eye, FileText } from 'lucide-vue-next'
+import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2 } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
 
 const router = useRouter()
@@ -843,9 +846,11 @@ function fmtDate(ts) {
 .chat-search { padding: 10px 12px; display: flex; align-items: center; gap: 6px; }
 .chat-search input { flex: 1; min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
 .chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.chat-refresh-btn { flex: none; position: relative; width: 32px; height: 32px; padding: 0 !important; display: flex; align-items: center; justify-content: center; }
-/* loading 时菊花绝对居中，不占额外空间 */
-.chat-refresh-btn :deep(.el-icon) { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; }
+.chat-refresh-btn { flex: none; width: 32px; height: 32px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
+.chat-refresh-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.chat-refresh-btn:disabled { opacity: .6; cursor: default; }
+.chat-refresh-btn .spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); }
 .chat-item:hover { border-color: var(--accent); }
