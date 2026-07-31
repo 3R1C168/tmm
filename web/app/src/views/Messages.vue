@@ -843,7 +843,10 @@ function fmtDate(ts) {
 .chat-search { padding: 10px 12px; display: flex; align-items: center; gap: 6px; }
 .chat-search input { flex: 1; min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
 .chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.chat-refresh-btn { flex: none; }
+.chat-refresh-btn { flex: none; position: relative; }
+/* loading 时 el-button 插入 spinner 占额外空间，用绝对定位覆盖到图标位置 */
+.chat-refresh-btn.is-loading { width: 32px; }
+.chat-refresh-btn.is-loading :deep(.el-icon) { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; }
 .chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); }
 .chat-item:hover { border-color: var(--accent); }
