@@ -481,8 +481,8 @@ function fmtBytes(n) {
 .mv-top {
   position: absolute; top: 0; left: 0; right: 0; z-index: 15;
   flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px 20px; color: #fff; gap: 12px; min-height: 52px;
-  background: linear-gradient(to bottom, rgba(0,0,0,.78) 0%, rgba(0,0,0,.5) 60%, transparent 100%);
+  padding: 12px 16px 14px; color: #fff; gap: 12px; min-height: 52px;
+  background: linear-gradient(to bottom, rgba(0,0,0,.78) 0%, rgba(0,0,0,.4) 70%, transparent 100%);
   pointer-events: none;
 }
 .mv-top > * { pointer-events: auto; }
