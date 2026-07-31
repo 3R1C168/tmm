@@ -932,7 +932,7 @@ function fmtDate(ts) {
 .play-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .play-ico { width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .thumb-wrap:hover .play-ico { background: rgba(0,0,0,.7); transform: scale(1.06); }
-.play-overlay .dur { position: absolute; right: 8px; bottom: 32px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); }
+.play-overlay .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); }
 /* 下载按钮：meta 行内右侧，圆形无底色，hover 才显蓝底 */
 .media-dl-btn { width: 30px; height: 30px; flex: none; margin-left: auto; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-3); cursor: pointer; transition: .15s; padding: 0; }
 .media-dl-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
