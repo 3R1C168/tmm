@@ -45,7 +45,10 @@
           </div>
           <div class="spacer" />
           <el-checkbox v-model="mediaOnly" size="small" @change="reloadMessages">只看媒体</el-checkbox>
-          <el-button size="small" text :loading="msgsLoading" @click="reloadMessages(true)"><RefreshCw :size="14" /></el-button>
+          <button class="chat-refresh-btn" :disabled="msgsLoading" @click="reloadMessages(true)" title="刷新消息">
+            <RefreshCw v-if="!msgsLoading" :size="14" />
+            <Loader2 v-else :size="14" class="spin" />
+          </button>
           <el-button type="primary" size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
           <el-button size="small" @click="rangeDialog = true">按范围下载</el-button>
         </header>
