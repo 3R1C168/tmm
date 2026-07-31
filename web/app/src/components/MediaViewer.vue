@@ -146,19 +146,18 @@ const cardStyle = computed(() => {
   }
   // 竖屏视频宽度窄，撑到控件条最小宽度
   cw = Math.max(cw, Math.min(MIN_CONTROLS_W, maxW))
-  // 视频返回高度撑满（充分利用网页高度）；图片不返回高度（按原始比例自适应，放大过量会模糊）
-  if (isVideo.value) {
-    return { width: Math.round(cw) + 'px', height: Math.round(vh + controlsBar) + 'px' }
-  }
-  return { width: Math.min(Math.round(w), Math.round(cw)) + 'px' }
+  // 视频按宽度等比算高度，不强制撑满（避免 contain 留上下黑边）；
+  // 顶栏悬浮不占布局，控件条在视频下方 flex 自然排列。
+  return { width: Math.round(cw) + 'px' }
 })
 
 const videoWrapStyle = computed(() => {
   const w = info.value?.width || naturalW.value
   const h = info.value?.height || naturalH.value
-  if (!w || !h) return { maxHeight: '100%' }
-  // 按比例撑满：高度优先（利用网页高度），宽度按 aspectRatio 自动，object-fit contain 兜底
-  return { aspectRatio: `${w} / ${h}`, height: '100%', maxHeight: '100%', display: 'flex' }
+  if (!w || !h) return { width: '100%' }
+  // 按视频比例自适应：width 撑满卡片，高度由 aspectRatio 自动算，
+  // 不强制 height:100% 避免容器高于视频比例时上下留黑边。
+  return { width: '100%', aspectRatio: `${w} / ${h}`, display: 'flex' }
 })
 
 watch(() => props.startIndex, (v) => { index.value = v })
