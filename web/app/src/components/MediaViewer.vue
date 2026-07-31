@@ -129,26 +129,29 @@ const cardStyle = computed(() => {
   if (theater.value) return { width: '100%', height: '100%', borderRadius: '0' }
   const w = info.value?.width || naturalW.value
   const h = info.value?.height || naturalH.value
-  // 最大化：卡片占视口宽 96%、高 94%（给四周留一点呼吸空间）
+  // 最大化：卡片占视口宽 96%、高 94%。顶栏悬浮不占布局，高度只扣 Plyr 控件条。
   const maxW = viewportW.value * 0.96
   const maxH = viewportH.value * 0.94
   if (!w || !h) {
-    // 元信息未到位：先按视口最大化，宽度取 maxW，高度取 maxH，
-    // 媒体区 object-fit:contain 自动按真实比例居中，拿到尺寸后 computed 重算精修。
     return { width: maxW + 'px', height: maxH + 'px' }
   }
   const ar = w / h
-  const chrome = 56 + 56 // 顶栏 + 控制条约估
-  let cw = Math.min(w, maxW)
-  let vh = cw / ar
-  if (vh + chrome > maxH) {
-    vh = maxH - chrome
-    cw = vh * ar
+  const controlsBar = 50 // Plyr 控件条约估，顶栏已悬浮不占
+  // 按高度优先：视频高度撑满 maxH - 控件条，宽度按比例算
+  let vh = maxH - controlsBar
+  let cw = vh * ar
+  // 宽度超 maxW 则按宽度收，高度等比降
+  if (cw > maxW) {
+    cw = maxW
+    vh = cw / ar
   }
-  // 竖屏视频算出的宽度可能很窄，撑到控制条所需的最小宽度（视频在上方居中，
-  // 控制条用整宽），避免控制条被压短。
+  // 竖屏视频宽度窄，撑到控件条最小宽度
   cw = Math.max(cw, Math.min(MIN_CONTROLS_W, maxW))
-  return { width: Math.round(cw) + 'px' }
+  // 视频返回高度撑满（充分利用网页高度）；图片不返回高度（按原始比例自适应，放大过量会模糊）
+  if (isVideo.value) {
+    return { width: Math.round(cw) + 'px', height: Math.round(vh + controlsBar) + 'px' }
+  }
+  return { width: Math.min(Math.round(w), Math.round(cw)) + 'px' }
 })
 
 const videoWrapStyle = computed(() => {
@@ -236,7 +239,7 @@ function setupPlyr() {
   const savedVol = parseFloat(localStorage.getItem('tmm-volume') || '0.5')
   const vol = isNaN(savedVol) ? 0.5 : Math.min(1, Math.max(0, savedVol))
   plyr = new Plyr(el, {
-    controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
+    controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings'],
     settings: ['speed'],
     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
     // CC/字幕功能整体关掉：控件列表不含 captions，设置菜单限 speed，
@@ -291,7 +294,42 @@ function setupPlyr() {
 
   // ArtPlayer 风格：控件叠加在视频底部（渐变遮罩），不再移到独立黑框
   watchVideoLoading()
+
+  // 注入"网页全屏"按钮到 Plyr 控件条（音量右边）：Plyr 不自带此控件，
+  // 用 DOM 插入一个与 Plyr 原生按钮同风格的按钮，点击触发 theater 模式
+  // （网页全屏，非浏览器全屏 API）。
+  injectTheaterButton()
 }
+
+function injectTheaterButton() {
+  if (!plyr) return
+  const controls = plyr.elements?.container?.querySelector('.plyr__controls')
+  if (!controls) return
+  // 避免重复注入
+  if (controls.querySelector('.plyr__theater-btn')) return
+  const btn = document.createElement('button')
+  btn.className = 'plyr__control plyr__theater-btn'
+  btn.type = 'button'
+  btn.title = '网页全屏'
+  updateTheaterBtnIcon(btn, theater.value)
+  btn.addEventListener('click', (e) => { e.preventDefault(); toggleTheater() })
+  controls.appendChild(btn)
+}
+
+function updateTheaterBtnIcon(btn, isTheater) {
+  // 进入网页全屏用 Minimize 图标，否则 Maximize 图标（Lucide 同款 path）
+  const path = isTheater
+    ? '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>'
+    : '<path d="M3 8V5a2 2 0 0 1 2-2h3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3"/>'
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>'
+}
+
+// theater 状态变化时同步注入按钮的图标
+watch(theater, (v) => {
+  if (!plyr) return
+  const btn = plyr.elements?.container?.querySelector('.plyr__theater-btn')
+  if (btn) updateTheaterBtnIcon(btn, v)
+})
 
 // 音量百分比数字：在 .plyr__volume 容器里放一个 <span>，hover 音量条时显示。
 // 用 Plyr 的容器元素查找（Plyr 包装后原始 <video> 被替换，videoEl 上
@@ -421,17 +459,21 @@ function fmtBytes(n) {
   max-width: 100vw; max-height: 100vh;
 }
 .mv-overlay.theater .mv-card { border-radius: 0; box-shadow: none; width: 100%; height: 100%; }
-/* 影院模式：隐藏顶栏，视频区铺满；右上角浮层按钮 hover 显现 */
-.mv-top.theater-hide { display: none; }
+/* 影院模式：右上角浮层按钮 hover 显现 */
 .mv-float-actions { position: absolute; top: 12px; right: 12px; z-index: 20; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; }
 .mv-overlay.theater:hover .mv-float-actions,
 .mv-float-actions:hover { opacity: 1; }
 .mv-float-actions .mv-icon-btn { background: rgba(0,0,0,.5); color: #fff; backdrop-filter: blur(8px); }
 .mv-float-actions .mv-icon-btn:hover { background: rgba(0,0,0,.75); }
 .mv-top {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 15;
   flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 16px; color: #fff; gap: 12px; min-height: 52px;
+  padding: 12px 16px; color: #fff; gap: 12px; min-height: 52px;
+  background: linear-gradient(to bottom, rgba(0,0,0,.7), transparent);
+  pointer-events: none;
 }
+.mv-top > * { pointer-events: auto; }
+.mv-top.theater-hide { display: none; }
 .mv-title { min-width: 0; }
 .mv-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mv-sub { font-size: 12px; color: rgba(255,255,255,.6); margin-top: 2px; }
@@ -458,6 +500,10 @@ function fmtBytes(n) {
 /* 视频容器：撑满 stage 高度，按比例 contain 不裁切；Plyr 内部 video 也 contain */
 .mv-video-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
 .mv-video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+/* 影院模式：视频铺满整个区域不留黑边，按宽度 cover（横屏视频常见比例 16:9
+   在宽屏网页下 cover 裁切极少；用户明确不要左右黑边，故用 cover 而非 contain） */
+.mv-overlay.theater .mv-video-wrap { width: 100%; height: 100%; max-width: none; max-height: none; }
+.mv-overlay.theater .mv-video { width: 100%; height: 100%; object-fit: cover; }
 
 /* 视频加载 / 错误状态浮层 */
 .mv-vstatus {
@@ -514,6 +560,7 @@ function fmtBytes(n) {
 :deep(.plyr--video) { background: #000; height: 100%; }
 :deep(.plyr__video-wrapper) { max-width: 100%; height: 100%; }
 :deep(.plyr video) { width: 100%; height: 100%; object-fit: contain; }
+.mv-overlay.theater :deep(.plyr video) { object-fit: cover; }
 
 /* 控件叠加在视频底部，带渐变遮罩 */
 :deep(.plyr__controls) {
