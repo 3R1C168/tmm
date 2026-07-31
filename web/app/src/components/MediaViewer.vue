@@ -501,20 +501,17 @@ function fmtBytes(n) {
 .mv-dl-top {
   height: 30px; padding: 0 14px; border: none; border-radius: var(--radius-lg);
   display: inline-flex; align-items: center; gap: 4px;
-  background: var(--bg-panel); color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
-  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  background: rgba(0,0,0,.25); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
+  backdrop-filter: blur(6px);
 }
 .mv-dl-top:hover { background: var(--accent); color: #fff; }
 .mv-x {
   width: 36px; height: 36px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg-panel); color: var(--text-2); cursor: pointer; transition: .15s;
-  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  background: rgba(0,0,0,.25); color: #fff; cursor: pointer; transition: .15s;
+  backdrop-filter: blur(6px);
 }
 .mv-x:hover { background: var(--red, #ef4444); color: #fff; }
-/* 影院模式：黑底白字毛玻璃（视频全屏下主题色按钮太亮） */
-.mv-overlay.theater .mv-x { background: rgba(0,0,0,.4); color: #fff; backdrop-filter: blur(4px); box-shadow: none; }
-.mv-overlay.theater .mv-x:hover { background: rgba(0,0,0,.7); }
 
 .mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; }
 .mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
