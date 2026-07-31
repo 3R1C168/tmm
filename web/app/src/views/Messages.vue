@@ -105,7 +105,7 @@
                     <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
                     <div v-if="albumText(item)" class="text">{{ albumText(item) }}</div>
                     <div class="meta">
-                      <span v-if="item.views"><Eye :size="12" /> {{ item.views }}</span>
+                      <span v-if="item.views" class="meta-views"><Eye :size="11" /> {{ item.views }}</span>
                       <span>{{ fmtDate(item.date) }}</span>
                       <button class="media-dl-btn" @click.stop="downloadAlbum(item)" title="下载整组({{ item.msgs.length }})"><Download :size="16" /></button>
                     </div>
@@ -147,7 +147,7 @@
                     </div>
                     <div v-if="item.msg.text" class="text">{{ item.msg.text }}</div>
                     <div class="meta">
-                      <span v-if="item.msg.views"><Eye :size="12" /> {{ item.msg.views }}</span>
+                      <span v-if="item.msg.views" class="meta-views"><Eye :size="11" /> {{ item.msg.views }}</span>
                       <span>{{ fmtDate(item.msg.date) }}</span>
                       <button class="media-dl-btn" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="16" /></button>
                     </div>
@@ -922,6 +922,9 @@ function fmtDate(ts) {
   line-height: 1.3125;
 }
 .bubble .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); margin-top: 3px; user-select: none; }
+/* 浏览数：图标和文字 inline-flex 垂直居中对齐 */
+.meta-views { display: inline-flex; align-items: center; gap: 3px; }
+.meta-views svg { display: block; }
 
 .media-box { cursor: zoom-in; }
 .thumb-wrap { position: relative; border-radius: var(--radius); overflow: hidden; }
