@@ -500,14 +500,14 @@ function fmtBytes(n) {
 .mv-dl-top {
   height: 36px; padding: 0 14px; border: none; border-radius: var(--radius-lg);
   display: inline-flex; align-items: center; gap: 4px;
-  background: rgba(0,0,0,.15); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
+  background: var(--glass-bg); color: var(--glass-color); font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
   backdrop-filter: blur(6px);
 }
 .mv-dl-top:hover { background: var(--accent); color: #fff; }
 .mv-x {
   width: 36px; height: 36px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.15); color: #fff; cursor: pointer; transition: .15s;
+  background: var(--glass-bg); color: var(--glass-color); cursor: pointer; transition: .15s;
   backdrop-filter: blur(6px);
 }
 .mv-x:hover { background: var(--red, #ef4444); color: #fff; }
@@ -541,7 +541,7 @@ function fmtBytes(n) {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
   width: 36px; height: 36px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.15); color: #fff; cursor: pointer; transition: .15s;
+  background: var(--glass-bg); color: var(--glass-color); cursor: pointer; transition: .15s;
   backdrop-filter: blur(6px);
 }
 .mv-nav:hover { background: var(--accent); color: #fff; }

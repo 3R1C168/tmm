@@ -8,11 +8,11 @@
      不内置字体包：系统字体已足够清晰，且省去大体积 woff2。 */
   --font: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", "Apple Color Emoji", sans-serif;
 
-  --bg: #f0f2f6;
-  --bg-panel: #f9fafc;
-  --bg-hover: #eef0f4;
-  --bg-active: #e3ecf8;
-  --border: #e8ebf0;
+  --bg: #eaecef;
+  --bg-panel: #f3f4f7;
+  --bg-hover: #e7e9ed;
+  --bg-active: #dde7f3;
+  --border: #dfe2e8;
   --text: #1d2129;
   --text-2: #6b7280;
   --text-3: #9aa1ad;
@@ -22,6 +22,9 @@
   --orange: #f79009;
   --red: #f04438;
   --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 4px 16px rgba(16, 24, 40, 0.05);
+  /* 毛玻璃按钮：亮色透白、暗色透黑，统一半透明 + 文字色 */
+  --glass-bg: rgba(255, 255, 255, 0.18);
+  --glass-color: #fff;
 }
 html[data-theme="dark"] {
   --bg: #141519;
@@ -35,6 +38,8 @@ html[data-theme="dark"] {
   --accent: #6b93ff;
   --accent-soft: #25304a;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+  --glass-bg: rgba(0, 0, 0, 0.3);
+  --glass-color: #fff;
 }
 
 * { box-sizing: border-box; }
