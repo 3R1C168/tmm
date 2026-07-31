@@ -51,7 +51,15 @@
 
         <div class="msg-scroll">
           <div v-if="reconnecting" class="loading-tip reconnect-tip">连接重连中，自动重试…</div>
-          <div v-if="msgsLoading && !displayItems.length && !reconnecting" class="loading-tip">加载中…</div>
+          <div v-if="msgsLoading && !displayItems.length && !reconnecting" class="skeleton-list">
+            <div v-for="n in 6" :key="n" class="skel-row">
+              <div class="skel-bubble">
+                <div class="skel-media" :style="{ width: (160 + (n % 3) * 60) + 'px' }" />
+                <div class="skel-line w60" />
+                <div class="skel-line w40" />
+              </div>
+            </div>
+          </div>
           <div v-if="!msgsLoading && !displayItems.length && !reconnecting" class="loading-tip muted">该会话暂无消息</div>
 
           <DynamicScroller
@@ -115,6 +123,11 @@
                             <span class="play-ico"><Play :size="20" /></span>
                             <span class="dur">{{ fmtBytes(item.msg.media.size) }}</span>
                           </div>
+                          <!-- 时间戳+浏览数叠加在媒体右下角，不占额外行高（借鉴 tt） -->
+                          <div class="media-overlay-meta">
+                            <span v-if="item.msg.views"><Eye :size="11" /> {{ item.msg.views }}</span>
+                            <span>{{ fmtDate(item.msg.date) }}</span>
+                          </div>
                         </div>
                       </template>
                       <template v-else-if="isAudio(item.msg.media)">
@@ -139,8 +152,8 @@
                     <div v-if="item.msg.text" class="text">{{ item.msg.text }}</div>
                     <div class="meta">
                       <button class="dl-msg" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="14" /> 下载</button>
-                      <span v-if="item.msg.views"><Eye :size="12" /> {{ item.msg.views }}</span>
-                      <span>{{ fmtDate(item.msg.date) }}</span>
+                      <span v-if="item.msg.views && !(isImage(item.msg.media) || isVideo(item.msg.media))"><Eye :size="12" /> {{ item.msg.views }}</span>
+                      <span v-if="!(isImage(item.msg.media) || isVideo(item.msg.media))">{{ fmtDate(item.msg.date) }}</span>
                     </div>
                   </div>
                 </div>
@@ -863,6 +876,18 @@ function fmtDate(ts) {
 .msg-scroll .scroller { flex: 1; min-height: 0; padding: 16px 24px 20px; }
 .loading-tip { text-align: center; padding: 8px 0; font-size: 12.5px; }
 .reconnect-tip { color: var(--accent, #4f7cff); animation: reconnect-pulse 1.4s ease-in-out infinite; }
+
+/* 骨架屏：加载消息时的占位卡片，按媒体比例预绘 + 波形动画（借鉴 tt Skeleton）。
+   主题色驱动，亮暗自适应。 */
+.skeleton-list { padding: 16px 24px; display: flex; flex-direction: column; gap: 16px; }
+.skel-row { display: flex; justify-content: flex-start; }
+.skel-bubble { background: var(--bg-panel); border-radius: var(--radius-lg); padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.06); overflow: hidden; }
+.skel-media { height: 120px; border-radius: var(--radius); margin-bottom: 8px; background: var(--bg-hover); }
+.skel-line { height: 10px; border-radius: var(--radius-sm); margin: 5px 0; background: var(--bg-hover); }
+.skel-line.w60 { width: 160px; }
+.skel-line.w40 { width: 100px; }
+.skel-media, .skel-line { background: linear-gradient(90deg, var(--bg-hover) 25%, var(--border) 50%, var(--bg-hover) 75%); background-size: 200% 100%; animation: skel-wave 1.4s ease-in-out infinite; }
+@keyframes skel-wave { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes reconnect-pulse { 0%,100% { opacity: .5 } 50% { opacity: 1 } }
 .msg-stack { display: flex; flex-direction: column; align-items: flex-start; }
 .msg-row { padding: 3px 0; width: 100%; }
@@ -908,6 +933,10 @@ function fmtDate(ts) {
 .play-ico { width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .thumb-wrap:hover .play-ico { background: rgba(0,0,0,.7); transform: scale(1.06); }
 .play-overlay .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); }
+/* 时间戳+浏览数叠加在媒体右下角（视频时让出 .dur 位置上移） */
+.media-overlay-meta { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); backdrop-filter: blur(4px); }
+/* 视频时长徽章在右下，时间戳上移避免重叠 */
+.thumb-wrap:has(.play-overlay) .media-overlay-meta { bottom: 32px; }
 
 /* 文件卡片：内容宽度 */
 .file-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); max-width: 100%; box-sizing: border-box; }

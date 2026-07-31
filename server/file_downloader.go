@@ -433,7 +433,10 @@ func (ss *streamSession) kickPrefetch() {
 					continue
 				}
 			}
-			batchCtx, batchCancel := context.WithCancel(ctx)
+			// 每个 prefetch batch 限 60s：单个 chunk RPC 卡住不会永久占 worker，
+			// 超时后整批放弃，下轮 polling 重新评估（借鉴 tt 的 PART_TIMEOUT 兜底，
+			// 避免 prefetch goroutine 被慢 RPC 钉死、playhead 追上后无法重锚）。
+			batchCtx, batchCancel := context.WithTimeout(ctx, 60*time.Second)
 			_ = ss.downloadSync(batchCtx, todo, nil)
 			batchCancel()
 			if ctx.Err() != nil {

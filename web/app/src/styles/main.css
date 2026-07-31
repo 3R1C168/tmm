@@ -77,6 +77,10 @@ html[data-theme="dark"] {
   --el-mask-color: rgba(20, 21, 25, 0.7);
 }
 
+/* 主题切换平滑过渡：对背景/边框/颜色相关属性加 transition，切换时不硬跳。
+   排除 all 避免影响 transform/opacity 等交互动画性能。 */
+* { transition: background-color .25s ease, border-color .25s ease, color .25s ease; }
+
 /* loading 遮罩跟随主题（修复暗色下白底） */
 .el-loading-mask {
   background-color: var(--el-mask-color, rgba(255, 255, 255, 0.7)) !important;
