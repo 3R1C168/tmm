@@ -65,11 +65,11 @@
           <button class="mv-cbtn" @click="zoom = 1" title="重置"><RotateCcw :size="16" /></button>
           <div class="mv-flex" />
         </div>
-      </div>
 
-      <!-- 上一个/下一个导航：放在卡片外两侧（overlay 层），不受卡片 overflow 裁切 -->
-      <button v-if="index > 0" class="mv-nav left" @click="prev" title="上一个 (←)"><ChevronLeft :size="26" stroke-width="3" /></button>
-      <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="26" stroke-width="3" /></button>
+        <!-- 上一个/下一个导航：贴卡片外侧（mv-card overflow:visible 可显示） -->
+        <button v-if="index > 0" class="mv-nav left" @click="prev" title="上一个 (←)"><ChevronLeft :size="26" stroke-width="3" /></button>
+        <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="26" stroke-width="3" /></button>
+      </div>
     </div>
   </teleport>
 </template>
@@ -468,7 +468,7 @@ function fmtBytes(n) {
   background: #14161b;
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
+  overflow: visible;
   max-width: 100vw; max-height: 100vh;
 }
 .mv-overlay.theater .mv-card { border-radius: 0; box-shadow: none; width: 100%; height: 100%; }
@@ -499,16 +499,21 @@ function fmtBytes(n) {
 .mv-icon-btn:hover { background: rgba(255,255,255,.2); }
 .mv-dl-top {
   height: 30px; padding: 0 14px; border: none; border-radius: var(--radius-lg);
-  background: #4f7cff; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-panel); color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
-.mv-dl-top:hover { background: #6b93ff; }
+.mv-dl-top:hover { background: var(--accent); color: #fff; }
 .mv-x {
   width: 36px; height: 36px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.4); color: #fff; cursor: pointer; transition: .15s;
-  backdrop-filter: blur(4px);
+  background: var(--bg-panel); color: var(--text-2); cursor: pointer; transition: .15s;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
-.mv-x:hover { background: rgba(0,0,0,.7); }
+.mv-x:hover { background: var(--red, #ef4444); color: #fff; }
+/* 影院模式：黑底白字毛玻璃（视频全屏下主题色按钮太亮） */
+.mv-overlay.theater .mv-x { background: rgba(0,0,0,.4); color: #fff; backdrop-filter: blur(4px); box-shadow: none; }
+.mv-overlay.theater .mv-x:hover { background: rgba(0,0,0,.7); }
 
 .mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; }
 .mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
@@ -543,9 +548,9 @@ function fmtBytes(n) {
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
 .mv-nav:hover { background: var(--accent); color: #fff; }
-/* 普通模式：按钮在视口左右边缘（卡片居中，两侧是 overlay 空白区） */
-.mv-nav.left { left: 2vw; }
-.mv-nav.right { right: 2vw; }
+/* 普通模式：按钮贴卡片外侧，留 12px 间隙不贴边 */
+.mv-nav.left { left: -56px; }
+.mv-nav.right { right: -56px; }
 /* 影院模式：卡片铺满视口，按钮回到内侧边缘 */
 .mv-overlay.theater .mv-nav { background: rgba(0,0,0,.4); color: #fff; backdrop-filter: blur(4px); box-shadow: none; }
 .mv-overlay.theater .mv-nav:hover { background: rgba(0,0,0,.7); }
