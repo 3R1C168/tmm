@@ -119,7 +119,7 @@ const dims = computed(() => {
 // 不落到固定 1200px 小卡，避免"打开瞬间没最大化"的视觉。
 const MIN_CONTROLS_W = 460
 const cardStyle = computed(() => {
-  if (theater.value) return { width: '100vw', height: '100vh', borderRadius: '0' }
+  if (theater.value) return { width: '100%', height: '100%', borderRadius: '0' }
   const w = info.value?.width || naturalW.value
   const h = info.value?.height || naturalH.value
   // 最大化：卡片占视口宽 96%、高 94%（给四周留一点呼吸空间）
@@ -147,8 +147,9 @@ const cardStyle = computed(() => {
 const videoWrapStyle = computed(() => {
   const w = info.value?.width || naturalW.value
   const h = info.value?.height || naturalH.value
-  if (!w || !h) return { width: '100%' }
-  return { width: '100%', aspectRatio: `${w} / ${h}`, display: 'flex' }
+  if (!w || !h) return { maxHeight: '100%' }
+  // 按比例撑满：高度优先（利用网页高度），宽度按 aspectRatio 自动，object-fit contain 兜底
+  return { aspectRatio: `${w} / ${h}`, height: '100%', maxHeight: '100%', display: 'flex' }
 })
 
 watch(() => props.startIndex, (v) => { index.value = v })
@@ -412,7 +413,7 @@ function fmtBytes(n) {
   overflow: hidden;
   max-width: 100vw; max-height: 100vh;
 }
-.mv-overlay.theater .mv-card { border-radius: 0; box-shadow: none; width: 100vw; height: 100vh; }
+.mv-overlay.theater .mv-card { border-radius: 0; box-shadow: none; width: 100%; height: 100%; }
 .mv-top {
   flex: none; display: flex; align-items: center; justify-content: space-between;
   padding: 10px 16px; color: #fff; gap: 12px; min-height: 52px;
@@ -440,8 +441,9 @@ function fmtBytes(n) {
 
 .mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; }
 .mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
-.mv-video-wrap { width: 100%; max-width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
-.mv-video { width: 100%; max-width: 100%; display: block; }
+/* 视频容器：撑满 stage 高度，按比例 contain 不裁切；Plyr 内部 video 也 contain */
+.mv-video-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+.mv-video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 
 /* 视频加载 / 错误状态浮层 */
 .mv-vstatus {
@@ -493,11 +495,10 @@ function fmtBytes(n) {
   --plyr-video-control-color-hover: #fff;
   --plyr-video-control-background: rgba(255,255,255,.15);
   --plyr-video-control-background-hover: rgba(255,255,255,.3);
-  width: 100%;
-  max-width: 100%;
+  width: 100%; height: 100%; max-width: 100%;
 }
-:deep(.plyr--video) { background: #000; }
-:deep(.plyr__video-wrapper) { max-width: 100%; }
+:deep(.plyr--video) { background: #000; height: 100%; }
+:deep(.plyr__video-wrapper) { max-width: 100%; height: 100%; }
 :deep(.plyr video) { width: 100%; height: 100%; object-fit: contain; }
 
 /* 控件叠加在视频底部，带渐变遮罩 */

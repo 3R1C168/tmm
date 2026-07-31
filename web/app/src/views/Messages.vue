@@ -98,7 +98,7 @@
                         @click="openViewer(m)"
                       >
                         <LazyThumb :src="api.mediaThumbUrl(current.id, m.id)" :placeholder="m.media?.stripped?.dataUri || ''" @load="onThumbLoad(m, $event)" @error="onThumbError" />
-                        <span v-if="isVideo(m.media)" class="cell-play"><Play :size="14" /></span>
+                        <span v-if="isVideo(m.media)" class="cell-play"><Play :size="32" /></span>
                       </div>
                     </div>
                     <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
@@ -120,7 +120,7 @@
                         <div class="thumb-wrap" :style="thumbStyle(item.msg)">
                           <LazyThumb :src="api.mediaThumbUrl(current.id, item.msg.id)" :placeholder="item.msg.media?.stripped?.dataUri || ''" @load="onThumbLoad(item.msg, $event)" @error="onThumbError" />
                           <div v-if="isVideo(item.msg.media)" class="play-overlay">
-                            <span class="play-ico"><Play :size="20" /></span>
+                            <span class="play-ico"><Play :size="24" stroke-width="2.5" /></span>
                             <span class="dur">{{ fmtBytes(item.msg.media.size) }}</span>
                           </div>
                           <!-- 时间戳+浏览数叠加在媒体右下角，不占额外行高（借鉴 tt） -->
@@ -256,7 +256,7 @@ const chatsLoading = ref(false)
 const search = ref('')
 const visibleChatCount = ref(30)
 const chatListEl = ref(null)
-const chatListW = ref(300)
+const chatListW = ref(parseInt(localStorage.getItem('tmm-chatlist-w')) || 300)
 const chatSentinelEl = ref(null)
 const current = ref(null)
 
@@ -275,6 +275,7 @@ function startResizeChat(e) {
     document.removeEventListener('mouseup', onUp)
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
+    localStorage.setItem('tmm-chatlist-w', String(chatListW.value))
   }
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
@@ -968,7 +969,8 @@ function fmtDate(ts) {
 .album-mosaic { position: relative; overflow: hidden; max-width: 100%; border-radius: var(--radius); }
 .album-cell { position: absolute; overflow: hidden; cursor: zoom-in; background: var(--bg-hover); }
 .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; background: rgba(0,0,0,.25); }
+.album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.3); }
+.album-cell .cell-play svg { filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
 .bubble.album .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .dl-group { display: inline-flex; align-items: center; gap: 4px; border: none; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: var(--radius-sm); transition: .13s; }
 .dl-group:hover { background: var(--accent); color: #fff; }
