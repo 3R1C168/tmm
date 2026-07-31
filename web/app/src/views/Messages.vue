@@ -169,7 +169,7 @@
 
         <!-- 回到最新 -->
         <transition name="fab">
-          <button v-if="showBackTop" class="back-top" @click="backToTop" title="回到最新"><ArrowDown :size="20" /></button>
+          <button v-if="showBackTop" class="back-top" @click="backToTop" title="回到最新"><ArrowUp :size="20" /></button>
         </transition>
       </template>
     </section>
@@ -246,7 +246,7 @@ import { useAppStore } from '../stores/app'
 import { usePlayerStore } from '../stores/player'
 import MediaViewer from '../components/MediaViewer.vue'
 import LazyThumb from '../components/LazyThumb.vue'
-import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowDown } from 'lucide-vue-next'
+import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
 
 const router = useRouter()
@@ -993,10 +993,10 @@ function fmtDate(ts) {
   position: absolute; right: 24px; bottom: 24px; z-index: 10;
   width: 44px; height: 44px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.5); color: #fff; cursor: pointer; transition: .15s;
-  backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  background: var(--accent); color: #fff; cursor: pointer; transition: .15s;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25);
 }
-.back-top:hover { background: var(--accent); }
+.back-top:hover { filter: brightness(1.1); }
 /* 进出场动画 */
 .fab-enter-active, .fab-leave-active { transition: all .2s ease; }
 .fab-enter-from, .fab-leave-to { opacity: 0; transform: scale(.8) translateY(8px); }

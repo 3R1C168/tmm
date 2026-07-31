@@ -9,7 +9,6 @@
       </el-empty>
 
       <div v-for="a in store.accounts" :key="a.ns" class="acct">
-        <div class="avatar">{{ (a.firstName || a.username || a.ns || '?').slice(0, 1).toUpperCase() }}</div>
         <div class="ainfo">
           <div class="aname">
             <span v-if="a.authorized">{{ a.firstName || a.username || ('用户 ' + a.userId) }}</span>
@@ -107,10 +106,6 @@ async function shutdown() {
 .card { max-width: 640px; margin-bottom: 18px; }
 .sec { margin: 0 0 14px; font-size: 15px; }
 .acct { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
-.avatar {
-  width: 46px; height: 46px; border-radius: 50%; flex: none; display: flex; align-items: center;
-  justify-content: center; color: #fff; font-weight: 600; font-size: 18px; background: var(--accent);
-}
 .ainfo { flex: 1; min-width: 0; }
 .aname { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .ameta { font-size: 12px; margin-top: 3px; }
