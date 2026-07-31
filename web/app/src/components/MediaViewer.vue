@@ -116,9 +116,9 @@ const dims = computed(() => {
   return w && h ? `${w}×${h}` : ''
 })
 
-// 卡片尺寸：打开时自适应网页可视区域最大化（宽高都贴近视口），媒体按
-// 实际宽高比等比放大到最大可见尺寸。影院模式铺满视口。
-// 预留一个最小控制条宽度，竖屏视频也不会被压成窄条。
+// 卡片尺寸：打开即最大化适应网页（保持媒体比例）。宽高 96%×94% 占满
+// 视口、按宽高比等比放大；媒体元信息未到位时也先按视口最大化撑开，
+// 不落到固定 1200px 小卡，避免"打开瞬间没最大化"的视觉。
 const MIN_CONTROLS_W = 460
 const cardStyle = computed(() => {
   if (theater.value) return { width: '100vw', height: '100vh', borderRadius: '0' }
@@ -128,7 +128,9 @@ const cardStyle = computed(() => {
   const maxW = viewportW.value * 0.96
   const maxH = viewportH.value * 0.94
   if (!w || !h) {
-    return { width: Math.min(maxW, 1200) + 'px' }
+    // 元信息未到位：先按视口最大化，宽度取 maxW，高度取 maxH，
+    // 媒体区 object-fit:contain 自动按真实比例居中，拿到尺寸后 computed 重算精修。
+    return { width: maxW + 'px', height: maxH + 'px' }
   }
   const ar = w / h
   const chrome = 56 + 56 // 顶栏 + 控制条约估
