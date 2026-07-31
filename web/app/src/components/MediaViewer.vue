@@ -464,6 +464,7 @@ function fmtBytes(n) {
 .mv-overlay.theater { background: rgba(0, 0, 0, 0.94); backdrop-filter: none; }
 /* 卡片：按视频尺寸自适应，深色面板 */
 .mv-card {
+  position: relative;
   display: flex; flex-direction: column;
   background: #14161b;
   border-radius: var(--radius-lg);
