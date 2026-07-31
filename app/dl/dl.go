@@ -55,7 +55,22 @@ type Options struct {
 	// Progress, when non-nil, receives download progress events instead of the
 	// built-in terminal progress bar. This lets non-CLI callers (e.g. a web
 	// backend) stream progress to their own UI. The terminal UI is used when nil.
+	//
+	// Note: a custom Progress is responsible for finalizing each element in
+	// OnDone; call FinalizeElem for that (the terminal UI does).
 	Progress downloader.Progress
+
+	// IterHook, when non-nil, is invoked right before the download starts with
+	// the iterator (see Iter). A service backend uses it to read the resume
+	// fingerprint, track finished messages, and persist progress. It is not
+	// invoked if dialog collection or iterator construction fails.
+	IterHook func(it Iter)
+
+	// Dialogs, when non-empty, supplies (peer, message IDs) pairs directly,
+	// bypassing the URL/file parsers. A service backend uses this to download a
+	// user-selected set of messages without writing an export file. It is merged
+	// with whatever URLs/Files produce.
+	Dialogs []*tmessage.Dialog
 }
 
 // runtime returns the effective runtime options, preferring explicitly-set
@@ -109,6 +124,10 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 	if err != nil {
 		return err
 	}
+	// merge any directly-supplied (peer, message IDs) dialogs
+	if len(opts.Dialogs) > 0 {
+		dialogs = append(dialogs, opts.Dialogs)
+	}
 	logctx.From(ctx).Debug("Collect dialogs",
 		zap.Any("dialogs", dialogs))
 
@@ -133,6 +152,10 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		}
 	} else {
 		color.Yellow("Restart download by 'restart' flag")
+	}
+
+	if opts.IterHook != nil {
+		opts.IterHook(it)
 	}
 
 	defer func() { // save progress
@@ -257,7 +280,7 @@ type progressRecord struct {
 	Finished []string `json:"finished"`
 }
 
-func marshalProgress(finished map[msgKey]struct{}) ([]byte, error) {
+func marshalProgress(finished map[MsgKey]struct{}) ([]byte, error) {
 	rec := progressRecord{Finished: make([]string, 0, len(finished))}
 	for k := range finished {
 		rec.Finished = append(rec.Finished, fmt.Sprintf("%d/%d", k.PeerID, k.MsgID))
@@ -269,8 +292,8 @@ func marshalProgress(finished map[msgKey]struct{}) ([]byte, error) {
 // order-independent format and the legacy logical-position format; legacy
 // positions cannot be mapped back to messages, so they are treated as no
 // resumable progress (the affected files simply re-download once).
-func unmarshalProgress(b []byte) (map[msgKey]struct{}, error) {
-	out := make(map[msgKey]struct{})
+func unmarshalProgress(b []byte) (map[MsgKey]struct{}, error) {
+	out := make(map[MsgKey]struct{})
 
 	// current format
 	var rec progressRecord
@@ -279,7 +302,7 @@ func unmarshalProgress(b []byte) (map[msgKey]struct{}, error) {
 			var peerID int64
 			var msgID int
 			if _, err := fmt.Sscanf(s, "%d/%d", &peerID, &msgID); err == nil {
-				out[msgKey{PeerID: peerID, MsgID: msgID}] = struct{}{}
+				out[MsgKey{PeerID: peerID, MsgID: msgID}] = struct{}{}
 			}
 		}
 		return out, nil

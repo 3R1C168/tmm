@@ -7,3 +7,8 @@ downloads
 tdl
 .hugo_build.lock
 .DS_Store
+node_modules/
+web/app/dist/
+moov.log
+serve.log
+*.log

@@ -5,10 +5,26 @@
         Telegram消息管理器
       </div>
       <div class="spacer" />
-      <div class="conn" :title="connTitle">
-        <span class="dot" :class="{ off: !account }" />
-        <span v-if="account">已连接 · @{{ account.username || account.userId }}</span>
-        <span v-else>未登录</span>
+      <el-dropdown v-if="store.accounts.length" trigger="click" @command="switchAccount">
+        <div class="conn" :title="connTitle">
+          <span class="dot" :class="{ off: !account }" />
+          <span v-if="account">{{ accountName(account) }}</span>
+          <span v-else>未登录</span>
+        </div>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item
+              v-for="a in store.accounts"
+              :key="a.ns"
+              :command="a.ns"
+              :disabled="a.active"
+            >{{ accountName(a) }}{{ a.active ? ' · 当前' : '' }}</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+      <div v-else class="conn" :title="connTitle">
+        <span class="dot off" />
+        <span>未登录</span>
       </div>
       <button class="iconbtn" :title="store.theme === 'light' ? '切换到暗色' : '切换到亮色'" @click="store.toggleTheme()">
         <Moon v-if="store.theme === 'light'" :size="18" />
@@ -43,6 +59,7 @@
 <script setup>
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAppStore } from './stores/app'
 import GlobalPlayer from './components/GlobalPlayer.vue'
 import { Moon, Sun, MessageSquare, Inbox, UserRound } from 'lucide-vue-next'
@@ -56,10 +73,23 @@ const nav = [
   { path: '/settings', label: '账号', ico: UserRound },
 ]
 
-const account = computed(() => store.authorizedAccount)
+const account = computed(() => store.accounts.find((a) => a.active) || store.authorizedAccount)
 const connTitle = computed(() =>
   account.value ? `命名空间: ${account.value.ns}` : '尚未登录任何账号'
 )
+// 显示用户名 + ID：优先 username，无则 firstName，都无则 ns
+function accountName(a) {
+  if (!a) return '未登录'
+  const name = a.username ? '@' + a.username : (a.firstName || a.ns)
+  return a.userId ? `${name} (${a.userId})` : name
+}
+// 切换账号：后端单活跃模型，需重启服务生效。前端先高亮目标账号并提示。
+function switchAccount(ns) {
+  const target = store.accounts.find((a) => a.ns === ns)
+  if (!target || target.active) return
+  store.accounts.forEach((a) => { a.active = (a.ns === ns) })
+  ElMessage.success(`已切换到 ${accountName(target)}，重启服务后生效`)
+}
 
 const isActive = (p) => route.path.startsWith(p)
 

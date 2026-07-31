@@ -98,3 +98,51 @@ func TestState_Remove(t *testing.T) {
 	// removing again is a no-op
 	require.NoError(t, s.Remove())
 }
+
+func TestState_Mark_SubPiecePartial(t *testing.T) {
+	// piece size 4: writing only half a piece must NOT complete it
+	s := NewState(StatePath(filepath.Join(t.TempDir(), "f.tmp")), 8, testPart)
+
+	s.Mark(0, 2) // first half of piece 0
+	require.False(t, s.Complete())
+	require.Len(t, s.Missing(), 2, "half-written piece must stay missing")
+
+	s.Mark(2, 2) // second half completes piece 0
+	missing := s.Missing()
+	require.Len(t, missing, 1)
+	require.Equal(t, pieceRange{Off: 4, End: 8}, missing[0])
+}
+
+func TestState_Mark_SubPieceOutOfOrder(t *testing.T) {
+	s := NewState(StatePath(filepath.Join(t.TempDir(), "f.tmp")), 8, testPart)
+
+	// write the second half first, then the first half
+	s.Mark(2, 2)
+	s.Mark(6, 2) // half of piece 1
+	s.Mark(0, 2)
+	s.Mark(4, 2)
+	require.True(t, s.Complete())
+	require.Empty(t, s.Missing())
+}
+
+func TestState_Mark_SpanningWrite(t *testing.T) {
+	// one write covering a boundary between pieces
+	s := NewState(StatePath(filepath.Join(t.TempDir(), "f.tmp")), 8, testPart)
+	s.Mark(2, 4) // covers piece0[2-4) + piece1[0-2)
+	require.Empty(t, s.Missing()[0:0])
+	require.Len(t, s.Missing(), 2)
+
+	s.Mark(0, 2)
+	s.Mark(6, 2)
+	require.True(t, s.Complete())
+}
+
+func TestState_FlushAtomic_NoLeftoverTmp(t *testing.T) {
+	data := filepath.Join(t.TempDir(), "f.tmp")
+	s := NewState(StatePath(data), 8, testPart)
+	s.Mark(0, 4)
+	require.NoError(t, s.Flush())
+
+	_, err := os.Stat(StatePath(data) + ".tmp")
+	require.True(t, os.IsNotExist(err), "temp file must be renamed away")
+}

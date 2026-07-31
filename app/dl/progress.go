@@ -3,19 +3,14 @@ package dl
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/fatih/color"
-	"github.com/gabriel-vasile/mimetype"
 	"github.com/go-faster/errors"
 	pw "github.com/jedib0t/go-pretty/v6/progress"
 
 	"github.com/iyear/tdl/core/downloader"
-	"github.com/iyear/tdl/core/util/fsutil"
 	"github.com/iyear/tdl/pkg/prog"
 	"github.com/iyear/tdl/pkg/utils"
 )
@@ -62,64 +57,12 @@ func (p *progress) OnDone(elem downloader.Elem, err error) {
 	}
 	t := tracker.(*pw.Tracker)
 
-	if err := e.to.Close(); err != nil {
-		p.fail(t, elem, errors.Wrap(err, "close file"))
-		return
-	}
-
-	if err != nil {
-		if !errors.Is(err, context.Canceled) { // don't report user cancel
-			p.fail(t, elem, errors.Wrap(err, "progress"))
-		}
-		// keep the partial file and its control file so the download can be
-		// resumed later; flush whatever pieces were written
-		if e.resume != nil {
-			_ = e.resume.Flush()
+	if _, ferr := FinalizeElem(e, p.opts, p.it, err); ferr != nil {
+		if !errors.Is(ferr, context.Canceled) { // don't report user cancel
+			p.fail(t, elem, ferr)
 		}
 		return
 	}
-
-	p.it.Finish(e.key)
-
-	// download finished: drop the control file before renaming the data file
-	if e.resume != nil {
-		_ = e.resume.Remove()
-	}
-
-	if err := p.donePost(e); err != nil {
-		p.fail(t, elem, errors.Wrap(err, "post file"))
-		return
-	}
-}
-
-func (p *progress) donePost(elem *iterElem) error {
-	newfile := strings.TrimSuffix(filepath.Base(elem.to.Name()), tempExt)
-
-	if p.opts.RewriteExt {
-		mime, err := mimetype.DetectFile(elem.to.Name())
-		if err != nil {
-			return errors.Wrap(err, "detect mime")
-		}
-		ext := mime.Extension()
-		if ext != "" && (filepath.Ext(newfile) != ext) {
-			newfile = fsutil.GetNameWithoutExt(newfile) + ext
-		}
-	}
-
-	newpath := filepath.Join(filepath.Dir(elem.to.Name()), newfile)
-	if err := os.Rename(elem.to.Name(), newpath); err != nil {
-		return errors.Wrap(err, "rename file")
-	}
-
-	// Set file modification time to message date if available
-	if elem.file.Date > 0 {
-		fileTime := time.Unix(elem.file.Date, 0)
-		if err := os.Chtimes(newpath, fileTime, fileTime); err != nil {
-			return errors.Wrap(err, "set file time")
-		}
-	}
-
-	return nil
 }
 
 func (p *progress) fail(t *pw.Tracker, elem downloader.Elem, err error) {

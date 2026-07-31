@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>任务 · tdl web</title>
+<link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<div class="app" id="app"></div>
+<script src="shell.js"></script>
+<script>
+/* ================= 假数据 ================= */
+const tasks = [
+  {type:'dl', name:'流浪地球3.2024.1080p.WEB-DL.H264.mkv', from:'电影资源分享',
+   size:'4.2 GB', done:2.6, total:4.2, speed:'8.2 MB/s', eta:'3分24秒',
+   state:'run', takeout:true, resume:true, pct:62},
+  {type:'dl', name:'iceland_aurora_04.raw', from:'摄影作品精选',
+   size:'248 MB', done:0.9, total:2.1, speed:'5.1 MB/s', eta:'42秒',
+   state:'run', takeout:false, resume:true, pct:43},
+  {type:'up', name:'tdl_feat_core-fixes.patch', from:'→ Saved Messages',
+   size:'142 KB', done:0, total:0, speed:'', eta:'',
+   state:'done', takeout:false, resume:false, pct:100},
+  {type:'dl', name:'quarterly_report_2024Q2.pdf', from:'Saved Messages',
+   size:'12.4 MB', done:0, total:0, speed:'', eta:'',
+   state:'pause', takeout:false, resume:true, pct:62, pauseInfo:'已保存断点 · 7.7 MB / 12.4 MB'},
+  {type:'fw', name:'转发 38 条消息', from:'科技日报 → 前端技术交流群',
+   size:'', done:0, total:0, speed:'', eta:'',
+   state:'done', takeout:false, resume:false, pct:100},
+  {type:'dl', name:'docker_desktop_installer.exe', from:'软件分享频道',
+   size:'586 MB', done:0, total:0, speed:'', eta:'',
+   state:'fail', takeout:true, resume:true, pct:28, failInfo:'FLOOD_WAIT (等待 37s 后自动重试) · 断点已保存'},
+  {type:'dl', name:'album_family_trip_2024.zip', from:'家庭群',
+   size:'1.8 GB', done:0, total:0, speed:'', eta:'',
+   state:'done', takeout:false, resume:false, pct:100},
+];
+const TYPE_META = {dl:{ico:'⬇',bg:'#4f7cff',label:'下载'}, up:{ico:'⬆',bg:'#22b07d',label:'上传'}, fw:{ico:'↪',bg:'#f79009',label:'转发'}};
+const STATE_TAG = {run:'<span class="tag state-run">下载中</span>', pause:'<span class="tag state-pause">已暂停</span>',
+  done:'<span class="tag state-done">已完成</span>', fail:'<span class="tag state-fail">失败</span>'};
+
+/* ================= 渲染 ================= */
+const wrap = document.createElement('div');
+wrap.className = 'tasks-wrap';
+wrap.innerHTML = `
+  <div class="task-head">
+    <h2>任务中心</h2>
+    <div class="tabs" id="tabs">
+      <button class="active" data-f="all">全部</button>
+      <button data-f="dl">下载</button>
+      <button data-f="up">上传</button>
+      <button data-f="fw">转发</button>
+    </div>
+  </div>
+  <div class="newtask">
+    <input id="url" placeholder="粘贴 Telegram 消息链接，如 https://t.me/channel/123 …">
+    <button class="btn ghost">选项 ▾</button>
+    <button class="btn primary">⬇ 下载</button>
+  </div>
+  <div id="list"></div>`;
+
+const list = wrap.querySelector('#list');
+
+function actionBtns(t){
+  if (t.state==='run')   return `<button class="btn ghost">⏸ 暂停</button><button class="btn ghost">✕ 取消</button>`;
+  if (t.state==='pause') return `<button class="btn primary">▶ 继续</button><button class="btn ghost">✕ 删除</button>`;
+  if (t.state==='fail')  return `<button class="btn primary">↻ 重试</button><button class="btn ghost">✕ 删除</button>`;
+  return `<button class="btn ghost">📂 打开</button>`;
+}
+
+function card(t){
+  const m = TYPE_META[t.type];
+  const pcls = t.state==='done'?'done':t.state==='pause'?'paused':t.state==='fail'?'failed':'';
+  const extra = [
+    STATE_TAG[t.state],
+    t.takeout ? '<span class="tag takeout">⚡ takeout</span>' : '',
+    t.resume && t.state!=='done' ? '<span class="tag resume">⏸ 断点已保存</span>' : '',
+  ].filter(Boolean).join(' ');
+  const sub = t.state==='run'
+    ? `<span>${t.from}</span><span>${t.done} / ${t.total} GB</span><span>${t.speed}</span><span>剩余 ${t.eta}</span>`
+    : t.state==='pause' ? `<span>${t.from}</span><span>${t.pauseInfo}</span>`
+    : t.state==='fail' ? `<span>${t.from}</span><span>${t.failInfo}</span>`
+    : `<span>${t.from}</span><span>${t.size}</span>`;
+  return `<div class="task-card">
+    <div class="trow">
+      <div class="tico" style="background:${m.bg}">${m.ico}</div>
+      <div class="tinfo">
+        <div class="tname">${t.name}</div>
+        <div class="tsub">${extra}</div>
+        <div class="tsub">${sub}</div>
+      </div>
+      <div class="tactions">${actionBtns(t)}</div>
+    </div>
+    <div class="pbar ${pcls}"><i style="width:${t.pct}%"></i></div>
+  </div>`;
+}
+
+function render(filter='all'){
+  const ts = tasks.filter(t => filter==='all' || t.type===filter);
+  const running = ts.filter(t=>t.state==='run'||t.state==='fail'||t.state==='pause');
+  const finished = ts.filter(t=>t.state==='done');
+  list.innerHTML =
+    (running.length?`<div class="group-title">进行中 (${running.length})</div>`+running.map(card).join(''):'') +
+    (finished.length?`<div class="group-title">已完成 (${finished.length})</div>`+finished.map(card).join(''):'');
+}
+
+wrap.querySelectorAll('#tabs button').forEach(b=>{
+  b.onclick=()=>{ wrap.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); render(b.dataset.f); };
+});
+
+render();
+renderShell(document.getElementById('app'), 'tasks.html', wrap);
+
+/* 模拟进行中任务的进度推进（展示 SSE 实时更新后的效果） */
+setInterval(()=>{
+  let changed=false;
+  tasks.forEach(t=>{ if(t.state==='run' && t.pct<100){ t.pct=Math.min(100,t.pct+1); changed=true; } });
+  if(changed){
+    const active = document.querySelector('#tabs button.active');
+    render(active ? active.dataset.f : 'all');
+  }
+}, 1500);
+</script>
+</body>
+</html>

@@ -44,18 +44,21 @@ type fileTemplate struct {
 	DownloadDate int64
 }
 
-// msgKey identifies a downloaded message independent of iteration order, so
+// MsgKey identifies a downloaded message independent of iteration order, so
 // resume progress survives changes to --desc, grouping and message deletion.
-type msgKey struct {
+type MsgKey struct {
 	PeerID int64
 	MsgID  int
 }
 
-func keyOf(peer tg.InputPeerClass, msgID int) msgKey {
-	return msgKey{PeerID: tutil.GetInputPeerID(peer), MsgID: msgID}
+// String returns the order-independent "peerID/msgID" resume coordinate.
+func (k MsgKey) String() string { return fmt.Sprintf("%d/%d", k.PeerID, k.MsgID) }
+
+func keyOf(peer tg.InputPeerClass, msgID int) MsgKey {
+	return MsgKey{PeerID: tutil.GetInputPeerID(peer), MsgID: msgID}
 }
 
-func keyFromMsg(peer tg.InputPeerClass, m *tg.Message) msgKey {
+func keyFromMsg(peer tg.InputPeerClass, m *tg.Message) MsgKey {
 	return keyOf(peer, m.ID)
 }
 
@@ -82,7 +85,7 @@ type iter struct {
 	prefetcher *prefetcher
 
 	mu       *sync.Mutex
-	finished map[msgKey]struct{} // order-independent set of downloaded messages
+	finished map[MsgKey]struct{} // order-independent set of downloaded messages
 	// processedGroups records grouped IDs whose whole album was already
 	// expanded, so when the iterator later reaches another message of the same
 	// album it is skipped instead of re-fetching the group.
@@ -138,7 +141,7 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dial
 		prefetcher: newPrefetcher(pool, dialogs),
 
 		mu:              &sync.Mutex{},
-		finished:        make(map[msgKey]struct{}),
+		finished:        make(map[MsgKey]struct{}),
 		processedGroups: make(map[groupKey]struct{}),
 		fingerprint:     fingerprint(dialogs),
 		// This param is kept for potential future use but is currently unused.
@@ -259,7 +262,7 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 // isFinished reports whether a message has already been downloaded. It checks
 // the order-independent key set, and falls back to the legacy logical-position
 // set when an old-format progress record was loaded.
-func (i *iter) isFinished(k msgKey) bool {
+func (i *iter) isFinished(k MsgKey) bool {
 	if _, ok := i.finished[k]; ok {
 		return true
 	}
@@ -429,19 +432,19 @@ func (i *iter) Err() error {
 	return i.err
 }
 
-func (i *iter) SetFinished(finished map[msgKey]struct{}) {
+func (i *iter) SetFinished(finished map[MsgKey]struct{}) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	i.finished = finished
 }
 
-func (i *iter) Finished() map[msgKey]struct{} {
+func (i *iter) Finished() map[MsgKey]struct{} {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	// return a copy so callers can iterate without racing concurrent Finish
-	out := make(map[msgKey]struct{}, len(i.finished))
+	out := make(map[MsgKey]struct{}, len(i.finished))
 	for k := range i.finished {
 		out[k] = struct{}{}
 	}
@@ -452,7 +455,7 @@ func (i *iter) Fingerprint() string {
 	return i.fingerprint
 }
 
-func (i *iter) Finish(k msgKey) {
+func (i *iter) Finish(k MsgKey) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 

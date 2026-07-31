@@ -1,0 +1,220 @@
+/* ============ art-design-pro 风格基调 + 亮暗主题 ============ */
+:root{
+  --radius:14px;
+  --radius-sm:10px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+
+  --bg:#f4f6fa;
+  --bg-panel:#ffffff;
+  --bg-hover:#f2f4f8;
+  --bg-active:#e8f0fe;
+  --border:#e8ebf0;
+  --text:#1d2129;
+  --text-2:#6b7280;
+  --text-3:#9aa1ad;
+  --accent:#4f7cff;
+  --accent-soft:#eaf1ff;
+  --green:#22b07d;
+  --orange:#f79009;
+  --red:#f04438;
+  --shadow:0 1px 3px rgba(16,24,40,.06),0 4px 16px rgba(16,24,40,.05);
+
+  /* 消息气泡（Telegram 风） */
+  --bubble-in:#ffffff;
+  --bubble-out:#d6e6ff;
+  --bubble-out-text:#0b1b33;
+  --chat-bg:#e9edf3;
+}
+html[data-theme="dark"]{
+  --bg:#141519;
+  --bg-panel:#1e2025;
+  --bg-hover:#26282e;
+  --bg-active:#2b3547;
+  --border:#2c2f36;
+  --text:#e8eaf0;
+  --text-2:#9aa1ad;
+  --text-3:#6b7280;
+  --accent:#6b93ff;
+  --accent-soft:#25304a;
+  --shadow:0 1px 3px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);
+
+  --bubble-in:#22252b;
+  --bubble-out:#34547e;
+  --bubble-out-text:#eaf1fb;
+  --chat-bg:#17181c;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;overflow:hidden}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-3)}
+
+/* ============ 外壳：顶栏 + 侧栏 ============ */
+.app{display:flex;flex-direction:column;height:100vh}
+.topbar{height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 20px;
+  background:var(--bg-panel);border-bottom:1px solid var(--border);z-index:10}
+.topbar .logo{font-size:18px;font-weight:700;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+.topbar .logo .badge{font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-soft);
+  padding:2px 8px;border-radius:20px}
+.topbar .spacer{flex:1}
+.conn{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)}
+.conn .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(34,176,125,.18)}
+.iconbtn{width:34px;height:34px;border:none;border-radius:10px;background:transparent;cursor:pointer;
+  color:var(--text-2);font-size:16px;display:flex;align-items:center;justify-content:center;transition:.15s}
+.iconbtn:hover{background:var(--bg-hover);color:var(--text)}
+
+.main{flex:1;display:flex;min-height:0}
+.sider{width:76px;flex:none;background:var(--bg-panel);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px}
+.sider .nav-item{width:56px;padding:9px 0;border-radius:var(--radius-sm);border:none;background:transparent;
+  cursor:pointer;color:var(--text-2);display:flex;flex-direction:column;align-items:center;gap:4px;
+  font-size:11px;transition:.15s}
+.sider .nav-item:hover{background:var(--bg-hover);color:var(--text)}
+.sider .nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.sider .nav-item .ico{font-size:19px}
+.content{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+
+/* ============ 消息页布局 ============ */
+.msg-wrap{flex:1;display:flex;min-height:0}
+.chat-list{width:300px;flex:none;display:flex;flex-direction:column;background:var(--bg-panel);
+  border-right:1px solid var(--border);min-height:0}
+.chat-search{padding:12px 14px}
+.chat-search input{width:100%;height:36px;border:1px solid var(--border);border-radius:10px;
+  background:var(--bg);color:var(--text);padding:0 12px;outline:none;font-size:13px;transition:.15s}
+.chat-search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.chat-items{flex:1;overflow-y:auto;padding:4px 8px 12px}
+.chat-item{display:flex;gap:11px;padding:10px;border-radius:var(--radius-sm);cursor:pointer;transition:.13s;align-items:center}
+.chat-item:hover{background:var(--bg-hover)}
+.chat-item.active{background:var(--bg-active)}
+.avatar{width:46px;height:46px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:600;font-size:16px;user-select:none}
+.chat-item .meta{flex:1;min-width:0}
+.chat-item .row1{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.chat-item .name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item .time{font-size:11px;color:var(--text-3);flex:none}
+.chat-item .preview{font-size:12.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+.chat-item .unread{min-width:19px;height:19px;border-radius:10px;background:var(--accent);color:#fff;
+  font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 6px}
+
+/* 消息流 */
+.chat-view{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--chat-bg)}
+.chat-header{height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 18px;
+  background:var(--bg-panel);border-bottom:1px solid var(--border)}
+.chat-header .title{font-weight:700;font-size:15px}
+.chat-header .sub{font-size:12px;color:var(--text-2)}
+.msg-scroll{flex:1;overflow-y:auto;padding:20px 8vw 12px}
+.day-divider{text-align:center;margin:14px 0}
+.day-divider span{font-size:11.5px;color:var(--text-2);background:var(--bg-panel);
+  border:1px solid var(--border);padding:4px 12px;border-radius:20px}
+
+/* ============ Telegram 气泡 ============ */
+.msg-stack{display:flex;flex-direction:column}
+.msg{display:flex;margin:3px 0;max-width:66%;animation:pop .18s ease}
+.msg .bubble{position:relative;padding:8px 11px 6px;border-radius:var(--radius);
+  background:var(--bubble-in);box-shadow:0 1px 2px rgba(16,24,40,.08);min-width:0}
+.msg .sender{font-size:12px;font-weight:700;margin-bottom:3px}
+.msg .text{font-size:14px;line-height:1.5;word-break:break-word;white-space:pre-wrap}
+.msg .meta{display:flex;justify-content:flex-end;align-items:center;gap:4px;
+  font-size:11px;color:var(--text-3);margin-top:2px;user-select:none}
+.msg.in{align-self:flex-start}
+.msg.out{align-self:flex-end;margin-left:auto;justify-content:flex-end}
+.msg.out .bubble{background:var(--bubble-out);color:var(--bubble-out-text)}
+.msg.out .meta{color:rgba(120,150,190,.9)}
+html[data-theme="dark"] .msg.out .meta{color:rgba(200,215,240,.55)}
+/* 气泡尖角 */
+.msg .bubble::before{content:"";position:absolute;bottom:0;width:0;height:0;border:8px solid transparent}
+.msg.in .bubble::before{left:-8px;border-right-color:var(--bubble-in);border-bottom-color:var(--bubble-in);border-left:0}
+.msg.out .bubble::before{right:-8px;border-left-color:var(--bubble-out);border-bottom-color:var(--bubble-out);border-right:0}
+/* 同发送者连续消息去尖角 */
+.msg.follow{margin-top:-1px}
+.msg.follow .bubble::before{display:none}
+
+/* 媒体消息 */
+.bubble.media{padding:4px;overflow:hidden;max-width:340px}
+.bubble.media .text{padding:4px 8px 0}
+.bubble.media .meta{position:absolute;right:10px;bottom:8px;background:rgba(0,0,0,.42);color:#fff;
+  padding:2px 8px;border-radius:12px;font-size:11px}
+.ph-img{border-radius:11px;display:flex;align-items:center;justify-content:center;color:#fff;
+  font-size:13px;font-weight:600;letter-spacing:.5px;position:relative;overflow:hidden}
+.ph-img .play{position:absolute;width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.45);
+  display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;cursor:pointer;transition:.15s}
+.ph-img .play:hover{background:rgba(0,0,0,.6);transform:scale(1.06)}
+.ph-img .dur{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.5);color:#fff;
+  font-size:11px;padding:2px 7px;border-radius:9px}
+/* 相册网格 */
+.album{display:grid;grid-template-columns:1fr 1fr;gap:3px;border-radius:11px;overflow:hidden;max-width:340px}
+.album .ph-img{border-radius:0}
+
+/* 文件卡片 */
+.file-card{display:flex;align-items:center;gap:12px;padding:6px 4px;min-width:250px}
+.file-card .fico{width:44px;height:44px;flex:none;border-radius:11px;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+.file-card .finfo{flex:1;min-width:0}
+.file-card .fname{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-card .fsize{font-size:12px;color:var(--text-2);margin-top:2px}
+.file-card .dl{width:38px;height:38px;flex:none;border-radius:50%;border:1.5px solid var(--accent);
+  background:transparent;color:var(--accent);cursor:pointer;font-size:15px;display:flex;
+  align-items:center;justify-content:center;transition:.15s}
+.file-card .dl:hover{background:var(--accent);color:#fff}
+
+/* 转发标记 */
+.fwd{font-size:12px;color:var(--accent);font-weight:600;margin-bottom:3px}
+
+@keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* 消息输入条 */
+.msg-input{flex:none;display:flex;align-items:center;gap:10px;padding:12px 8vw;background:var(--chat-bg)}
+.msg-input .box{flex:1;display:flex;align-items:center;gap:8px;background:var(--bg-panel);
+  border:1px solid var(--border);border-radius:22px;padding:8px 14px}
+.msg-input input{flex:1;border:none;outline:none;background:transparent;color:var(--text);font-size:14px}
+.msg-input .send{width:40px;height:40px;border:none;border-radius:50%;background:var(--accent);
+  color:#fff;font-size:16px;cursor:pointer;transition:.15s}
+.msg-input .send:hover{filter:brightness(1.08)}
+
+/* ============ 任务中心 ============ */
+.tasks-wrap{flex:1;overflow-y:auto;padding:22px 26px}
+.task-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.task-head h2{font-size:18px}
+.task-head .tabs{display:flex;gap:4px;background:var(--bg-panel);border:1px solid var(--border);
+  border-radius:12px;padding:4px;margin-left:auto}
+.task-head .tabs button{border:none;background:transparent;color:var(--text-2);padding:7px 16px;
+  border-radius:9px;cursor:pointer;font-size:13px;transition:.15s}
+.task-head .tabs button.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.newtask{display:flex;gap:10px;background:var(--bg-panel);border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);margin-bottom:18px}
+.newtask input{flex:1;height:40px;border:1px solid var(--border);border-radius:10px;background:var(--bg);
+  color:var(--text);padding:0 14px;outline:none;font-size:13.5px}
+.newtask input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.btn{height:40px;border:none;border-radius:10px;padding:0 18px;cursor:pointer;font-size:13.5px;
+  font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.ghost{background:transparent;color:var(--text-2);border:1px solid var(--border)}
+.btn.ghost:hover{background:var(--bg-hover);color:var(--text)}
+
+.task-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px 16px;box-shadow:var(--shadow);margin-bottom:12px;transition:.15s}
+.task-card:hover{box-shadow:0 2px 6px rgba(16,24,40,.08),0 8px 24px rgba(16,24,40,.07)}
+.task-card .trow{display:flex;align-items:center;gap:12px}
+.task-card .tico{width:42px;height:42px;flex:none;border-radius:11px;display:flex;
+  align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
+.task-card .tinfo{flex:1;min-width:0}
+.task-card .tname{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-card .tsub{font-size:12px;color:var(--text-2);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.task-card .tactions{display:flex;gap:6px;flex:none}
+.pbar{height:7px;border-radius:6px;background:var(--bg-hover);overflow:hidden;margin-top:10px}
+.pbar>i{display:block;height:100%;border-radius:6px;background:var(--accent);transition:width .4s ease}
+.pbar.done>i{background:var(--green)}
+.pbar.paused>i{background:var(--orange)}
+.pbar.failed>i{background:var(--red)}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px}
+.tag.takeout{color:#7c5cff;background:rgba(124,92,255,.12)}
+.tag.resume{color:var(--green);background:rgba(34,176,125,.12)}
+.tag.state-run{color:var(--accent);background:var(--accent-soft)}
+.tag.state-pause{color:var(--orange);background:rgba(247,144,9,.12)}
+.tag.state-done{color:var(--green);background:rgba(34,176,125,.12)}
+.tag.state-fail{color:var(--red);background:rgba(240,68,56,.12)}
+.group-title{font-size:12.5px;font-weight:700;color:var(--text-2);margin:18px 2px 10px;
+  display:flex;align-items:center;gap:8px}
+.group-title::after{content:"";flex:1;height:1px;background:var(--border)}

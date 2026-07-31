@@ -24,6 +24,12 @@ const stateVersion = 1
 // Pieces are partSize bytes each. The bitmap is the source of truth: the data
 // file's size alone is not reliable because pieces may be written out of order
 // by concurrent workers, leaving zero-filled holes.
+//
+// A piece is only marked complete once it has been FULLY covered by written
+// ranges. Callers may write sub-piece blocks (e.g. the streamer fetches 512KiB
+// halves of a 1MiB piece, possibly out of order or twice); partial coverage is
+// tracked per piece so a half-written piece is never reported as done (which
+// would otherwise serve zero-filled holes to the reader).
 type State struct {
 	mu sync.Mutex
 
@@ -33,6 +39,11 @@ type State struct {
 	bits     []uint64
 	done     int // number of completed pieces
 	dirty    bool
+
+	// partial tracks byte coverage of pieces that are written but not yet
+	// complete. Key is the piece index; entry is dropped when the piece
+	// becomes fully covered and its bit is set.
+	partial map[int]*intervalSet
 }
 
 type stateFile struct {
@@ -125,26 +136,55 @@ func LoadState(dataPath string, size int64, partSize int) (*State, error) {
 	return s, nil
 }
 
-// Mark records the byte range [off, off+len) as written, marking any piece
-// fully covered by written ranges as complete. It returns the total number of
-// completed bytes so far (for progress reporting).
+// Mark records the byte range [off, off+len) as written. A piece is marked
+// complete only once the union of all written ranges fully covers it, so
+// partial sub-piece writes and duplicate writes are both safe.
 func (s *State) Mark(off int64, n int) {
 	if n <= 0 {
 		return
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	end := off + int64(n) // exclusive
 	first := int(off / int64(s.partSize))
-	last := int((off + int64(n) - 1) / int64(s.partSize))
+	last := int((end - 1) / int64(s.partSize))
 	for p := first; p <= last; p++ {
 		w := uint(p) / 64
 		b := uint(p) % 64
-		if s.bits[w]&(1<<b) == 0 {
+		if s.bits[w]&(1<<b) != 0 {
+			continue // already complete
+		}
+		pStart := int64(p) * int64(s.partSize)
+		pEnd := pStart + int64(s.partSize)
+		if pEnd > s.size {
+			pEnd = s.size
+		}
+		// coverage contributed by this write, clamped to the piece
+		cStart := off
+		if cStart < pStart {
+			cStart = pStart
+		}
+		cEnd := end
+		if cEnd > pEnd {
+			cEnd = pEnd
+		}
+		if s.partial == nil {
+			s.partial = make(map[int]*intervalSet)
+		}
+		iv := s.partial[p]
+		if iv == nil {
+			iv = &intervalSet{}
+			s.partial[p] = iv
+		}
+		iv.add(cStart, cEnd)
+		if iv.covers(pStart, pEnd) {
 			s.bits[w] |= 1 << b
 			s.done++
+			delete(s.partial, p)
 		}
 	}
 	s.dirty = true
-	s.mu.Unlock()
 }
 
 // Complete reports whether every piece has been written.
@@ -182,7 +222,9 @@ func (s *State) Missing() []pieceRange {
 }
 
 // Flush writes the current bitmap to the control file if it changed since the
-// last flush. It is a no-op when nothing new was marked.
+// last flush. The write is atomic (temp file + rename) so a crash never
+// leaves a half-written control file behind. It is a no-op when nothing new
+// was marked.
 func (s *State) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -215,8 +257,12 @@ func (s *State) Flush() error {
 		return errors.Wrap(err, "encode state")
 	}
 
-	if err = os.WriteFile(s.path, raw, 0o644); err != nil {
+	tmp := s.path + ".tmp"
+	if err = os.WriteFile(tmp, raw, 0o644); err != nil {
 		return errors.Wrap(err, "write state")
+	}
+	if err = os.Rename(tmp, s.path); err != nil {
+		return errors.Wrap(err, "rename state")
 	}
 
 	s.dirty = false
@@ -230,4 +276,59 @@ func (s *State) Remove() error {
 		return errors.Wrap(err, "remove state")
 	}
 	return nil
+}
+
+// --- interval set (sorted, non-overlapping half-open ranges) ---
+
+type interval struct{ start, end int64 }
+
+// intervalSet keeps the union of added intervals so coverage queries are
+// exact. Inserts merge overlapping/adjacent intervals.
+type intervalSet struct {
+	ranges []interval
+}
+
+func (s *intervalSet) add(start, end int64) {
+	if start >= end {
+		return
+	}
+	r := s.ranges
+	// find insertion window: all intervals touching [start, end)
+	i := 0
+	for i < len(r) && r[i].end < start {
+		i++
+	}
+	j := i
+	for j < len(r) && r[j].start <= end {
+		j++
+	}
+	merged := interval{start: start, end: end}
+	if i < len(r) && r[i].start < merged.start {
+		merged.start = r[i].start
+	}
+	if j > i && r[j-1].end > merged.end {
+		merged.end = r[j-1].end
+	}
+	out := make([]interval, 0, len(r)-(j-i)+1)
+	out = append(out, r[:i]...)
+	out = append(out, merged)
+	out = append(out, r[j:]...)
+	s.ranges = out
+}
+
+// covers reports whether the union of intervals fully covers [start, end).
+func (s *intervalSet) covers(start, end int64) bool {
+	cur := start
+	for _, r := range s.ranges {
+		if r.start > cur {
+			return false
+		}
+		if r.end > cur {
+			cur = r.end
+		}
+		if cur >= end {
+			return true
+		}
+	}
+	return false
 }

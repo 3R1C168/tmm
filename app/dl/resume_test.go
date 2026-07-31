@@ -48,7 +48,7 @@ func TestFingerprint_DifferentContent(t *testing.T) {
 // TestProgressRoundTrip verifies marshal/unmarshal of the order-independent
 // resume record preserves the finished message keys.
 func TestProgressRoundTrip(t *testing.T) {
-	finished := map[msgKey]struct{}{
+	finished := map[MsgKey]struct{}{
 		{PeerID: 123, MsgID: 1}: {},
 		{PeerID: 123, MsgID: 5}: {},
 		{PeerID: 456, MsgID: 9}: {},

@@ -36,16 +36,9 @@
       <div class="setrow">
         <div class="setinfo">
           <div class="setname">大视频预览走 takeout 通道</div>
-          <div class="setdesc muted">开启后，大于阈值的视频在线预览走 takeout（限流更低、更流畅），但会在你其他设备的 Telegram 上收到一条“数据导出”通知。实测本机普通通道已足够流畅，可按需开启。</div>
+          <div class="setdesc muted">开启后，大视频在线预览走 takeout（限流更低、更流畅），但会在你其他设备的 Telegram 上收到一条“数据导出”通知。实测本机普通通道已足够流畅，可按需开启。</div>
         </div>
         <el-switch v-model="settings.previewTakeout" @change="saveSettings" />
-      </div>
-      <div class="setrow">
-        <div class="setinfo">
-          <div class="setname">takeout 阈值（MB）</div>
-          <div class="setdesc muted">仅当文件大于该大小时才使用 takeout 通道。</div>
-        </div>
-        <el-input-number v-model="settings.takeoutMinMB" :min="1" :max="4096" :disabled="!settings.previewTakeout" @change="saveSettings" />
       </div>
       <div class="setrow">
         <div class="setinfo">
@@ -78,15 +71,14 @@ import { Plus } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
-const settings = ref({ previewTakeout: false, takeoutMinMB: 50, cacheMaxMB: 1024 })
+const settings = ref({ previewTakeout: false, cacheMaxMB: 5120 })
 
 onMounted(async () => {
   try {
     const s = await api.getSettings()
     settings.value = {
       previewTakeout: !!s.previewTakeout,
-      takeoutMinMB: s.takeoutMinMB || 50,
-      cacheMaxMB: s.cacheMaxMB || 1024,
+      cacheMaxMB: s.cacheMaxMB || 5120,
     }
   } catch { /* use defaults */ }
 })
@@ -95,7 +87,6 @@ async function saveSettings() {
   try {
     await api.updateSettings({
       previewTakeout: settings.value.previewTakeout,
-      takeoutMinMB: settings.value.takeoutMinMB,
       cacheMaxMB: settings.value.cacheMaxMB,
     })
     ElMessage.success('设置已保存')

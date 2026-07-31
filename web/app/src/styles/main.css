@@ -53,6 +53,9 @@ body {
 :root {
   --el-color-primary: var(--accent);
   --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-small: var(--radius-sm);
+  --el-button-border-radius: var(--radius-sm);
+  --el-button-border-radius-small: var(--radius-sm);
   --el-bg-color: var(--bg-panel);
   --el-bg-color-overlay: var(--bg-panel);
   --el-text-color-primary: var(--text);

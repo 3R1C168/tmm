@@ -14,9 +14,6 @@
           :class="{ active: current && current.id === c.id }"
           @click="selectChat(c)"
         >
-          <div class="avatar" :style="{ background: avatarColor(c.id) }">
-            {{ (c.visibleName || c.username || '?').slice(0, 1).toUpperCase() }}
-          </div>
           <div class="meta">
             <div class="row1">
               <span class="name">{{ c.visibleName || c.username || ('会话 ' + c.id) }}</span>
@@ -40,9 +37,6 @@
 
       <template v-else>
         <header class="chat-header">
-          <div class="avatar sm" :style="{ background: avatarColor(current.id) }">
-            {{ (current.visibleName || '?').slice(0, 1).toUpperCase() }}
-          </div>
           <div class="hinfo">
             <div class="title">{{ current.visibleName || current.username }}</div>
             <div class="sub muted">{{ typeLabel(current.type) }}<span v-if="selected.size"> · 已选 {{ selected.size }} 条</span></div>
@@ -816,11 +810,9 @@ function fmtDate(ts) {
 .chat-search input { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
 .chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .chat-items { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
-.chat-item { display: flex; gap: 11px; padding: 10px; border-radius: var(--radius-sm); cursor: pointer; transition: .13s; align-items: center; }
+.chat-item { display: flex; padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: .13s; align-items: center; }
 .chat-item:hover { background: var(--bg-hover); }
 .chat-item.active { background: var(--bg-active); }
-.avatar { width: 46px; height: 46px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 16px; }
-.avatar.sm { width: 38px; height: 38px; font-size: 14px; }
 .chat-item .meta { flex: 1; min-width: 0; }
 .chat-item .row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-item .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

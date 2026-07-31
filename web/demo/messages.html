@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>消息 · tdl web</title>
+<link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<div class="app" id="app"></div>
+<script src="shell.js"></script>
+<script>
+/* ================= 假数据 ================= */
+const AVATAR_COLORS = ['#4f7cff','#22b07d','#f79009','#7c5cff','#f04438','#0ea5b7','#d6336c'];
+const chats = [
+  {id:1, name:'Saved Messages', type:'saved', preview:'report_final.pdf · 12.4 MB', time:'10:42', unread:0},
+  {id:2, name:'Telegram News', type:'channel', preview:'[图片] 新功能上线公告', time:'09:15', unread:3},
+  {id:3, name:'电影资源分享 🎬', type:'channel', preview:'[视频] 流浪地球3.2024.1080p…', time:'昨天', unread:12},
+  {id:4, name:'前端技术交流群', type:'group', preview:'阿伟: 这个虚拟滚动方案不错', time:'昨天', unread:0},
+  {id:5, name:'Eric Chan', type:'private', preview:'好的，那就这么定了 👍', time:'周二', unread:0},
+  {id:6, name:'摄影作品精选', type:'channel', preview:'[相册] 冰岛极光 · 4 张', time:'周一', unread:0},
+  {id:7, name:'家庭群', type:'group', preview:'妈妈: [语音] 0:32', time:'周日', unread:2},
+];
+
+const ICONS = {saved:'🔖', channel:'📢', group:'👥', private:'👤'};
+function avatarColor(name){ let h=0; for(const c of name) h=(h*31+c.charCodeAt(0))>>>0; return AVATAR_COLORS[h%AVATAR_COLORS.length]; }
+function initials(name){ return [...name.replace(/[^\w\u4e00-\u9fa5]/g,'')].slice(0,1).join('') || '#'; }
+
+/* 消息假数据：覆盖文本/图片/视频/相册/文件/转发/发出 */
+const messages = [
+  {day:'7月21日 星期一'},
+  {dir:'in', sender:'Telegram News', color:'#4f7cff', type:'text',
+   text:'tdl v0.20.3 发布 🎉\n\n- 修复了若干下载稳定性问题\n- 改进大文件的 flood-wait 处理\n\n更新方式详见官网。', time:'09:12'},
+  {dir:'in', sender:'Telegram News', color:'#4f7cff', type:'text', follow:true,
+   text:'另外，takeout 模式现在对大文件默认启用了。', time:'09:13'},
+  {dir:'out', type:'text', text:'收到，我今晚升级试试。断点续传那个 bug 修了吗？', time:'09:20', state:'✓✓'},
+  {dir:'in', sender:'Telegram News', color:'#4f7cff', type:'text',
+   text:'修了，现在中断后重跑会从断点继续，不再从头下载。', time:'09:22'},
+  {day:'7月22日 星期二'},
+  {dir:'in', sender:'资源君', color:'#22b07d', type:'video',
+   caption:'流浪地球3.2024.1080p.WEB-DL.H264\n\n年度科幻大片，质量很不错 👍', dur:'2:19:44', w:320, h:180, grad:['#1c3a5e','#0e1f38'], time:'14:02'},
+  {dir:'in', sender:'资源君', color:'#22b07d', type:'file',
+   fname:'流浪地球3.2024.1080p.WEB-DL.H264.mkv', fsize:'4.2 GB · MKV', fext:'MKV', time:'14:03'},
+  {dir:'out', type:'text', text:'这个我要，先存了', time:'14:10', state:'✓✓'},
+  {dir:'in', sender:'阿伟', color:'#f79009', type:'album', count:4,
+   caption:'冰岛极光实拍，原图直出 🇮🇸', time:'16:40',
+   imgs:[{g:['#123c2b','#0b2a1e']},{g:['#1a3d5c','#122c45']},{g:['#2b3a67','#1d2a4d']},{g:['#0f3d46','#0a2c33']}]},
+  {day:'7月24日 星期四'},
+  {dir:'in', sender:'摄影精选', color:'#7c5cff', type:'photo',
+   caption:'今日精选：晨光中的渔村', w:320, h:220, grad:['#c98a4b','#8a5a2b'], time:'08:30'},
+  {dir:'in', sender:'摄影精选', color:'#7c5cff', type:'file',
+   fname:'workshop_lightroom_preset.zip', fsize:'86.5 MB · ZIP', fext:'ZIP', time:'08:31'},
+  {dir:'in', sender:'日报 Bot', color:'#0ea5b7', type:'text', fwd:'转发自 科技日报',
+   text:'【早报】Go 1.26 发布，带来更快的编译速度和新的 range-over-func 改进……', time:'08:45'},
+  {dir:'out', type:'file', fname:'tdl_feat_core-fixes.patch', fsize:'142 KB · PATCH', fext:'PAT', time:'10:42', state:'✓✓'},
+];
+
+/* ================= 渲染 ================= */
+const wrap = document.createElement('div');
+wrap.className = 'msg-wrap';
+wrap.innerHTML = `
+  <aside class="chat-list">
+    <div class="chat-search"><input id="q" placeholder="搜索对话…"></div>
+    <div class="chat-items" id="chatItems"></div>
+  </aside>
+  <section class="chat-view">
+    <div class="chat-header">
+      <div class="avatar" id="hAvatar"></div>
+      <div><div class="title" id="hTitle"></div><div class="sub" id="hSub"></div></div>
+    </div>
+    <div class="msg-scroll" id="msgScroll"></div>
+    <div class="msg-input">
+      <div class="box">
+        <button class="iconbtn" title="附件">📎</button>
+        <input placeholder="发送消息（demo 不可用）" disabled>
+        <button class="iconbtn" title="表情">😊</button>
+      </div>
+      <button class="send" title="发送">➤</button>
+    </div>
+  </section>`;
+
+const chatItems = wrap.querySelector('#chatItems');
+const msgScroll = wrap.querySelector('#msgScroll');
+const hAvatar = wrap.querySelector('#hAvatar');
+const hTitle = wrap.querySelector('#hTitle');
+const hSub = wrap.querySelector('#hSub');
+
+function renderChats(filter='') {
+  chatItems.innerHTML = '';
+  chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase())).forEach(c => {
+    const el = document.createElement('div');
+    el.className = 'chat-item' + (c.id === 3 ? ' active' : '');
+    el.innerHTML = `
+      <div class="avatar" style="background:${avatarColor(c.name)}">${c.type==='saved'?'🔖':initials(c.name)}</div>
+      <div class="meta">
+        <div class="row1"><span class="name">${ICONS[c.type]||''} ${c.name}</span><span class="time">${c.time}</span></div>
+        <div class="row1"><span class="preview">${c.preview}</span>${c.unread?`<span class="unread">${c.unread}</span>`:''}</div>
+      </div>`;
+    chatItems.appendChild(el);
+  });
+}
+
+function phImg(w,h,grad,label){
+  return `<div class="ph-img" style="width:${w}px;height:${h}px;background:linear-gradient(135deg,${grad[0]},${grad[1]})">${label||''}</div>`;
+}
+
+function bubbleHtml(m) {
+  const cls = `msg ${m.dir}${m.follow?' follow':''}`;
+  const sender = (m.dir==='in' && m.sender && !m.follow) ? `<div class="sender" style="color:${m.color}">${m.sender}</div>` : '';
+  const fwd = m.fwd ? `<div class="fwd">↪ ${m.fwd}</div>` : '';
+  const meta = `<div class="meta">${m.time||''}${m.state?` <span>${m.state}</span>`:''}</div>`;
+
+  if (m.type==='text')
+    return `<div class="${cls}"><div class="bubble">${sender}${fwd}<div class="text">${m.text}</div>${meta}</div></div>`;
+
+  if (m.type==='photo')
+    return `<div class="${cls}"><div class="bubble media">${sender}
+      ${phImg(m.w,m.h,m.grad,'🖼')}
+      ${m.caption?`<div class="text">${m.caption}</div>`:''}${meta}</div></div>`;
+
+  if (m.type==='video')
+    return `<div class="${cls}"><div class="bubble media">${sender}
+      <div class="ph-img" style="width:${m.w}px;height:${m.h}px;background:linear-gradient(135deg,${m.grad[0]},${m.grad[1]})">
+        <div class="play">▶</div><div class="dur">${m.dur}</div></div>
+      ${m.caption?`<div class="text">${m.caption}</div>`:''}${meta}</div></div>`;
+
+  if (m.type==='album') {
+    const cells = m.imgs.map(i=>`<div class="ph-img" style="width:168px;height:120px;background:linear-gradient(135deg,${i.g[0]},${i.g[1]})"></div>`).join('');
+    return `<div class="${cls}"><div class="bubble media">${sender}
+      <div class="album">${cells}</div>
+      ${m.caption?`<div class="text">${m.caption}</div>`:''}${meta}</div></div>`;
+  }
+
+  if (m.type==='file')
+    return `<div class="${cls}"><div class="bubble">${sender}${fwd}
+      <div class="file-card">
+        <div class="fico">${m.fext}</div>
+        <div class="finfo"><div class="fname">${m.fname}</div><div class="fsize">${m.fsize}</div></div>
+        <button class="dl" title="下载">⬇</button>
+      </div>${meta}</div></div>`;
+
+  return '';
+}
+
+function renderMessages() {
+  msgScroll.innerHTML = '<div class="msg-stack" id="stack"></div>';
+  const stack = msgScroll.querySelector('#stack');
+  messages.forEach(m => {
+    if (m.day) {
+      stack.insertAdjacentHTML('beforeend', `<div class="day-divider"><span>${m.day}</span></div>`);
+    } else {
+      stack.insertAdjacentHTML('beforeend', bubbleHtml(m));
+    }
+  });
+  msgScroll.scrollTop = msgScroll.scrollHeight;
+}
+
+// 初始化：选中"电影资源分享"
+const active = chats[2];
+hAvatar.style.background = avatarColor(active.name);
+hAvatar.textContent = initials(active.name);
+hTitle.textContent = active.name;
+hSub.textContent = '12,483 订阅 · 媒体 3,208 个';
+
+wrap.querySelector('#q').oninput = e => renderChats(e.target.value);
+renderChats();
+renderMessages();
+
+renderShell(document.getElementById('app'), 'messages.html', wrap);
+</script>
+</body>
+</html>
