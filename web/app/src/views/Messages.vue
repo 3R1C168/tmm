@@ -101,13 +101,16 @@
                         <span v-if="isVideo(m.media)" class="cell-play"><Play :size="32" /></span>
                         <span v-if="m.media?.size" class="cell-dur">{{ fmtBytes(m.media.size) }}</span>
                       </div>
+                      <!-- 相册整组的时间+浏览数叠加在网格右下角（统一媒体风格） -->
+                      <div class="album-overlay-meta">
+                        <span v-if="item.views"><Eye :size="11" /> {{ item.views }}</span>
+                        <span>{{ fmtDate(item.date) }}</span>
+                      </div>
                     </div>
                     <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
                     <div v-if="albumText(item)" class="text">{{ albumText(item) }}</div>
                     <div class="meta">
                       <button class="dl-group" @click.stop="downloadAlbum(item)"><Download :size="14" /> 下载整组({{ item.msgs.length }})</button>
-                      <span v-if="item.views"><Eye :size="12" /> {{ item.views }}</span>
-                      <span>{{ fmtDate(item.date) }}</span>
                     </div>
                   </div>
                 </div>
@@ -969,6 +972,8 @@ function fmtDate(ts) {
 
 /* 相册（拼图布局，照 telegram-tt） */
 .album-mosaic { position: relative; overflow: hidden; max-width: 100%; border-radius: var(--radius); }
+/* 相册整组时间+浏览数叠加在网格右下角（统一媒体叠加风格） */
+.album-overlay-meta { position: absolute; right: 6px; bottom: 6px; z-index: 4; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); backdrop-filter: blur(4px); }
 .album-cell { position: absolute; overflow: hidden; cursor: zoom-in; background: var(--bg-hover); }
 .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.3); }

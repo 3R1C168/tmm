@@ -498,7 +498,7 @@ function fmtBytes(n) {
 }
 .mv-icon-btn:hover { background: rgba(255,255,255,.2); }
 .mv-dl-top {
-  height: 30px; padding: 0 14px; border: none; border-radius: var(--radius-lg);
+  height: 36px; padding: 0 14px; border: none; border-radius: var(--radius-lg);
   display: inline-flex; align-items: center; gap: 4px;
   background: rgba(0,0,0,.25); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
   backdrop-filter: blur(6px);
