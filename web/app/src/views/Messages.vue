@@ -101,16 +101,18 @@
                         <span v-if="isVideo(m.media)" class="cell-play"><Play :size="32" /></span>
                         <span v-if="m.media?.size" class="cell-dur">{{ fmtBytes(m.media.size) }}</span>
                       </div>
-                      <!-- 相册整组的时间+浏览数叠加在网格右下角（统一媒体风格） -->
+                      <!-- 相册整组的时间+浏览数叠加在网格左下角（统一媒体叠加风格） -->
                       <div class="album-overlay-meta">
                         <span v-if="item.views"><Eye :size="11" /> {{ item.views }}</span>
                         <span>{{ fmtDate(item.date) }}</span>
                       </div>
+                      <!-- 下载整组：右下角圆形毛玻璃，hover 才有底色 -->
+                      <button class="media-dl-btn" @click.stop="downloadAlbum(item)" title="下载整组"><Download :size="16" /></button>
                     </div>
                     <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
                     <div v-if="albumText(item)" class="text">{{ albumText(item) }}</div>
-                    <div class="meta">
-                      <button class="dl-group" @click.stop="downloadAlbum(item)"><Download :size="14" /> 下载整组({{ item.msgs.length }})</button>
+                    <div class="meta" v-if="albumText(item)">
+                      <span class="muted" style="font-size:11px">{{ item.msgs.length }} 个媒体</span>
                     </div>
                   </div>
                 </div>
@@ -127,11 +129,13 @@
                             <span class="play-ico"><Play :size="24" stroke-width="2.5" /></span>
                             <span class="dur">{{ fmtBytes(item.msg.media.size) }}</span>
                           </div>
-                          <!-- 时间戳+浏览数叠加在媒体右下角，不占额外行高（借鉴 tt） -->
+                          <!-- 时间+浏览数：左下角 -->
                           <div class="media-overlay-meta">
                             <span v-if="item.msg.views"><Eye :size="11" /> {{ item.msg.views }}</span>
                             <span>{{ fmtDate(item.msg.date) }}</span>
                           </div>
+                          <!-- 下载按钮：右下角圆形毛玻璃，hover 才有底色 -->
+                          <button class="media-dl-btn" @click.stop="downloadSingle(item.msg)" title="下载媒体"><Download :size="16" /></button>
                         </div>
                       </template>
                       <template v-else-if="isAudio(item.msg.media)">
@@ -155,7 +159,7 @@
                     </div>
                     <div v-if="item.msg.text" class="text">{{ item.msg.text }}</div>
                     <div class="meta">
-                      <button class="dl-msg" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="14" /> 下载</button>
+                      <button v-if="!item.msg.hasMedia || !(isImage(item.msg.media) || isVideo(item.msg.media))" class="dl-msg" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="14" /> 下载</button>
                       <span v-if="item.msg.views && !(isImage(item.msg.media) || isVideo(item.msg.media))"><Eye :size="12" /> {{ item.msg.views }}</span>
                       <span v-if="!(isImage(item.msg.media) || isVideo(item.msg.media))">{{ fmtDate(item.msg.date) }}</span>
                     </div>
@@ -938,11 +942,11 @@ function fmtDate(ts) {
 .play-ico { width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .thumb-wrap:hover .play-ico { background: rgba(0,0,0,.7); transform: scale(1.06); }
 .play-overlay .dur { position: absolute; right: 8px; bottom: 32px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); }
-/* 时间戳+浏览数叠加在媒体右下角（dur 在其上方） */
-.media-overlay-meta { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); backdrop-filter: blur(4px); }
-/* 无视频时长徽章的图片：时间戳在最下 */
-.thumb-wrap:has(.play-overlay) .media-overlay-meta { bottom: 8px; }
-.thumb-wrap:not(:has(.play-overlay)) .media-overlay-meta { bottom: 8px; }
+/* 时间+浏览数叠加在媒体左下角 */
+.media-overlay-meta { position: absolute; left: 8px; bottom: 8px; z-index: 4; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); backdrop-filter: blur(4px); }
+/* 下载按钮：右下角圆形毛玻璃，默认透明无底色，hover 才显蓝底 */
+.media-dl-btn { position: absolute; right: 8px; bottom: 8px; z-index: 5; width: 34px; height: 34px; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: #fff; cursor: pointer; transition: .15s; opacity: .7; }
+.media-dl-btn:hover { background: var(--accent); color: #fff; opacity: 1; }
 
 /* 文件卡片：内容宽度 */
 .file-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); max-width: 100%; box-sizing: border-box; }
@@ -972,8 +976,8 @@ function fmtDate(ts) {
 
 /* 相册（拼图布局，照 telegram-tt） */
 .album-mosaic { position: relative; overflow: hidden; max-width: 100%; border-radius: var(--radius); }
-/* 相册整组时间+浏览数叠加在网格右下角（统一媒体叠加风格） */
-.album-overlay-meta { position: absolute; right: 6px; bottom: 6px; z-index: 4; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); backdrop-filter: blur(4px); }
+/* 相册整组时间+浏览数叠加在网格左下角（统一媒体叠加风格） */
+.album-overlay-meta { position: absolute; left: 6px; bottom: 6px; z-index: 4; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); backdrop-filter: blur(4px); }
 .album-cell { position: absolute; overflow: hidden; cursor: zoom-in; background: var(--bg-hover); }
 .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.3); }
