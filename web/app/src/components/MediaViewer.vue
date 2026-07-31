@@ -502,10 +502,12 @@ function fmtBytes(n) {
 }
 .mv-dl-top:hover { background: #6b93ff; }
 .mv-x {
-  width: 32px; height: 32px; border: none; border-radius: 50%;
-  background: rgba(255,255,255,.08); color: #fff; font-size: 15px; cursor: pointer; transition: .15s;
+  width: 36px; height: 36px; border: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.4); color: #fff; cursor: pointer; transition: .15s;
+  backdrop-filter: blur(4px);
 }
-.mv-x:hover { background: rgba(255,255,255,.2); }
+.mv-x:hover { background: rgba(0,0,0,.7); }
 
 .mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; }
 .mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
@@ -536,10 +538,10 @@ function fmtBytes(n) {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
   width: 44px; height: 44px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.4); color: #fff; cursor: pointer; transition: .15s;
+  background: rgba(0,0,0,.22); color: #fff; cursor: pointer; transition: .15s;
   backdrop-filter: blur(4px);
 }
-.mv-nav:hover { background: rgba(0,0,0,.7); }
+.mv-nav:hover { background: rgba(0,0,0,.6); }
 .mv-nav.left { left: 12px; }
 .mv-nav.right { right: 12px; }
 
