@@ -14,7 +14,6 @@
             </div>
           </div>
           <div class="mv-topactions">
-            <button class="mv-icon-btn" @click="toggleTheater" :title="theater ? '退出影院模式' : '影院模式（网页全屏）'"><Minimize v-if="theater" :size="18" /><Maximize v-else :size="18" /></button>
             <button class="mv-dl-top" @click="download" title="下载此媒体"><Download :size="16" /> 下载</button>
             <button class="mv-x" title="关闭 (Esc)" @click="close"><X :size="20" /></button>
           </div>
@@ -499,10 +498,10 @@ function fmtBytes(n) {
 /* 视频容器：撑满 stage 高度，按比例 contain 不裁切；Plyr 内部 video 也 contain */
 .mv-video-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
 .mv-video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-/* 影院模式：视频铺满整个区域不留黑边，按宽度 cover（横屏视频常见比例 16:9
-   在宽屏网页下 cover 裁切极少；用户明确不要左右黑边，故用 cover 而非 contain） */
+/* 影院模式：视频铺满整个区域，按高度 contain 等比放大（不裁切，
+   比例不匹配时留黑边是 contain 的正常行为，优于裁切丢失画面内容） */
 .mv-overlay.theater .mv-video-wrap { width: 100%; height: 100%; max-width: none; max-height: none; }
-.mv-overlay.theater .mv-video { width: 100%; height: 100%; object-fit: cover; }
+.mv-overlay.theater .mv-video { width: 100%; height: 100%; object-fit: contain; }
 
 /* 视频加载 / 错误状态浮层 */
 .mv-vstatus {
@@ -559,7 +558,6 @@ function fmtBytes(n) {
 :deep(.plyr--video) { background: #000; height: 100%; }
 :deep(.plyr__video-wrapper) { max-width: 100%; height: 100%; }
 :deep(.plyr video) { width: 100%; height: 100%; object-fit: contain; }
-.mv-overlay.theater :deep(.plyr video) { object-fit: cover; }
 
 /* 控件叠加在视频底部，带渐变遮罩 */
 :deep(.plyr__controls) {
