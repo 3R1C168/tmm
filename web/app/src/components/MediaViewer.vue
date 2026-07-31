@@ -116,18 +116,23 @@ const dims = computed(() => {
 
 // 卡片尺寸：打开即最大化适应网页（保持媒体比例）。宽高 96%×94% 占满
 // 视口、按宽高比等比放大；媒体元信息未到位时也先按视口最大化撑开，
-// 不落到固定 1200px 小卡，避免"打开瞬间没最大化"的视觉。
+// 卡片尺寸：打开即最大化适应网页。
+// 图片：按原始尺寸等比放大到视口 96%×94%（放大过量会模糊，限制在原始分辨率内）。
+// 视频：强制撑满视口 96%×94%（播放器要大，视频本身 object-fit:contain 按比例居中
+//   不裁切），不按原始尺寸限制卡片——小分辨率视频也占满播放区，体验一致。
+// 影院模式铺满视口。
 const MIN_CONTROLS_W = 460
 const cardStyle = computed(() => {
   if (theater.value) return { width: '100%', height: '100%', borderRadius: '0' }
-  const w = info.value?.width || naturalW.value
-  const h = info.value?.height || naturalH.value
-  // 最大化：卡片占视口宽 96%、高 94%（给四周留一点呼吸空间）
   const maxW = viewportW.value * 0.96
   const maxH = viewportH.value * 0.94
+  // 视频撑满：卡片占满可用区，视频按比例 contain 居中（黑边留比例）。
+  if (isVideo.value) {
+    return { width: Math.max(MIN_CONTROLS_W, maxW) + 'px', height: maxH + 'px' }
+  }
+  const w = info.value?.width || naturalW.value
+  const h = info.value?.height || naturalH.value
   if (!w || !h) {
-    // 元信息未到位：先按视口最大化，宽度取 maxW，高度取 maxH，
-    // 媒体区 object-fit:contain 自动按真实比例居中，拿到尺寸后 computed 重算精修。
     return { width: maxW + 'px', height: maxH + 'px' }
   }
   const ar = w / h
@@ -138,8 +143,6 @@ const cardStyle = computed(() => {
     vh = maxH - chrome
     cw = vh * ar
   }
-  // 竖屏视频算出的宽度可能很窄，撑到控制条所需的最小宽度（视频在上方居中，
-  // 控制条用整宽），避免控制条被压短。
   cw = Math.max(cw, Math.min(MIN_CONTROLS_W, maxW))
   return { width: Math.round(cw) + 'px' }
 })
