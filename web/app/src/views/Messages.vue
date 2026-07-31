@@ -17,10 +17,10 @@
           <div class="meta">
             <div class="row1">
               <span class="name">{{ c.visibleName || c.username || ('会话 ' + c.id) }}</span>
-              <span class="unread" v-if="c.unreadCount">{{ c.unreadCount > 99 ? '99+' : c.unreadCount }}</span>
             </div>
             <div class="preview">{{ typeLabel(c.type) }}<span v-if="c.username"> · @{{ c.username }}</span></div>
           </div>
+          <span class="unread" v-if="c.unreadCount">{{ c.unreadCount > 99 ? '99+' : c.unreadCount }}</span>
         </div>
         <div v-if="visibleChatCount < allFilteredCount" ref="chatSentinelEl" class="load-more muted">加载更多…</div>
       </div>
@@ -814,8 +814,8 @@ function fmtDate(ts) {
 .chat-item:hover { border-color: var(--accent); }
 .chat-item.active { border-color: var(--accent); background: var(--accent-soft); }
 .chat-item .meta { flex: 1; min-width: 0; }
-.chat-item .row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.chat-item .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-item .row1 { display: flex; align-items: center; gap: 8px; }
+.chat-item .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .chat-item .unread { min-width: 20px; height: 20px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; flex: none; }
 .chat-item .preview { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 .load-more { text-align: center; padding: 10px; font-size: 12px; }
@@ -915,11 +915,11 @@ function fmtDate(ts) {
 .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; background: rgba(0,0,0,.25); }
 .bubble.album .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.dl-group { border: none; background: transparent; color: var(--accent); font-size: 11px; cursor: pointer; padding: 0; }
-.dl-group:hover { text-decoration: underline; }
-.dl-msg { border: none; background: transparent; color: var(--accent); font-size: 11px; cursor: pointer; padding: 0; }
-.dl-msg:hover:not(:disabled) { text-decoration: underline; }
-.dl-msg:disabled { color: var(--text-3); opacity: .4; cursor: default; }
+.dl-group { display: inline-flex; align-items: center; gap: 4px; border: none; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: var(--radius-sm); transition: .13s; }
+.dl-group:hover { background: var(--accent); color: #fff; }
+.dl-msg { display: inline-flex; align-items: center; gap: 4px; border: none; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: var(--radius-sm); transition: .13s; }
+.dl-msg:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.dl-msg:disabled { background: var(--bg-hover); color: var(--text-3); opacity: .5; cursor: default; }
 
 /* 回到最新 */
 .back-top {
