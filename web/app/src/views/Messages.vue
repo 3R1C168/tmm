@@ -1,7 +1,7 @@
 <template>
   <div class="msg-wrap">
-    <!-- 左侧：会话列表 -->
-    <aside class="chat-list">
+    <!-- 左侧：会话列表（宽度可拖动调整） -->
+    <aside class="chat-list" :style="{ width: chatListW + 'px' }">
       <div class="chat-search">
         <input v-model="search" placeholder="搜索会话…" />
       </div>
@@ -27,6 +27,7 @@
       <div class="chat-foot">
         <el-button size="small" text :loading="chatsLoading" @click="loadChats(true)"><RefreshCw :size="14" /> 刷新</el-button>
       </div>
+      <div class="chat-resizer" @mousedown="startResizeChat"></div>
     </aside>
 
     <!-- 右侧：消息流（最新在上） -->
@@ -242,8 +243,31 @@ const chatsLoading = ref(false)
 const search = ref('')
 const visibleChatCount = ref(30)
 const chatListEl = ref(null)
+const chatListW = ref(300)
 const chatSentinelEl = ref(null)
 const current = ref(null)
+
+// 拖动调整群组列表宽度：mousedown 记录起点，mousemove 改宽度，mouseup 解绑。
+// 限制 220~560px，避免过窄压字/过宽挤压消息区。
+function startResizeChat(e) {
+  e.preventDefault()
+  const startX = e.clientX
+  const startW = chatListW.value
+  const onMove = (ev) => {
+    const w = startW + (ev.clientX - startX)
+    chatListW.value = Math.min(560, Math.max(220, w))
+  }
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
 
 const messages = ref([])
 const msgsLoading = ref(false)
@@ -805,7 +829,9 @@ function fmtDate(ts) {
 
 <style scoped>
 .msg-wrap { flex: 1; display: flex; min-height: 0; }
-.chat-list { width: 300px; flex: none; display: flex; flex-direction: column; background: var(--bg-panel); border-right: 1px solid var(--border); min-height: 0; }
+.chat-list { flex: none; display: flex; flex-direction: column; background: var(--bg-panel); border-right: 1px solid var(--border); min-height: 0; position: relative; }
+.chat-resizer { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 5; }
+.chat-resizer:hover, .chat-resizer:active { background: var(--accent); opacity: .3; }
 .chat-search { padding: 12px 14px; }
 .chat-search input { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
 .chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -860,10 +886,10 @@ function fmtDate(ts) {
   line-height: 1.3125; /* tt 行高 */
 }
 .bubble.media { padding: 4px; overflow: hidden; max-width: 472px; box-sizing: border-box; }
-.bubble.media .text, .bubble.media .meta { padding: 4px 8px 0; }
+.bubble.media .text, .bubble.media .meta { padding: 4px 8px 6px; }
 /* 相册气泡同样定宽到拼图宽度，文字在媒体宽度内换行，右侧不留白 */
 .bubble.album { padding: 4px; max-width: 472px; overflow: hidden; box-sizing: border-box; }
-.bubble.album .text, .bubble.album .meta { padding: 4px 8px 2px; }
+.bubble.album .text, .bubble.album .meta { padding: 4px 8px 6px; }
 .msg.out .bubble { background: var(--accent-soft); }
 
 /* 文字：不折叠，完整显示（对齐 Telegram 桌面端行为） */

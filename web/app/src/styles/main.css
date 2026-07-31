@@ -3,9 +3,10 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
-  /* 对齐 telegram-tt 字体栈：Roboto 优先（Telegram 品牌字体），回退到系统字体。
-     Windows 无 Roboto 时回退 Segoe UI；中文回退 PingFang SC(苹方)/Microsoft YaHei(雅黑)。 */
-  --font: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", "Apple Color Emoji", sans-serif;
+  /* 字体栈：Windows 11 Segoe UI Variable 优先（比 Segoe UI 更现代锐利），
+     回退 Segoe UI / system-ui；中文 PingFang SC(苹方)/Microsoft YaHei(雅黑)。
+     不内置字体包：系统字体已足够清晰，且省去大体积 woff2。 */
+  --font: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", "Apple Color Emoji", sans-serif;
 
   --bg: #f4f6fa;
   --bg-panel: #ffffff;
@@ -44,6 +45,9 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }

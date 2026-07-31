@@ -55,15 +55,13 @@
           <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="28" /></button>
         </div>
 
-        <!-- 图片控制条 -->
+        <!-- 图片控制条：仅缩放操作，下载/影院已在顶部统一操作 -->
         <div v-if="!isVideo" class="mv-controls">
           <button class="mv-cbtn" @click="zoomStep(-0.2)" title="缩小"><ZoomOut :size="18" /></button>
           <span class="mv-zoom">{{ Math.round(zoom * 100) }}%</span>
           <button class="mv-cbtn" @click="zoomStep(0.2)" title="放大"><ZoomIn :size="18" /></button>
           <button class="mv-cbtn" @click="zoom = 1" title="重置"><RotateCcw :size="16" /></button>
           <div class="mv-flex" />
-          <button class="mv-icon-btn" @click="toggleTheater" :title="theater ? '退出影院模式' : '影院模式'"><Minimize v-if="theater" :size="18" /><Maximize v-else :size="18" /></button>
-          <button class="mv-dl" @click="download" title="下载此媒体"><Download :size="16" /> 下载</button>
         </div>
       </div>
     </div>
