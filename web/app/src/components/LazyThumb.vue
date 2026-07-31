@@ -28,7 +28,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 
 // LazyThumb assigns img src when the element scrolls near the viewport.
 // If `placeholder` (a data: URI of the message's inline stripped thumbnail)
@@ -41,6 +41,24 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   alt: { type: String, default: '' },
 })
+// DynamicScroller 复用 slot 时 LazyThumb 组件实例被复用——src prop 变了但内部
+// 状态（shown/loaded/failed/realSrc）仍是旧消息的，导致新消息显示旧缩略图。
+// 监听 src 变化，重置全部状态并重新走观察→加载流程。
+watch(() => props.src, (v) => {
+  if (!v) return
+  loaded.value = false
+  failed.value = false
+  realSrc.value = ''
+  retryCount = 0
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+  // 若已进入视口（shown 仍 true），直接加载新 src；否则等 IO 触发
+  if (shown.value) {
+    realSrc.value = v
+  } else if (root.value && observer) {
+    observer.observe(root.value)
+  }
+})
+
 const emit = defineEmits(['load', 'error'])
 
 const root = ref(null)

@@ -933,11 +933,12 @@ function fmtDate(ts) {
 .play-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .play-ico { width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .thumb-wrap:hover .play-ico { background: rgba(0,0,0,.7); transform: scale(1.06); }
-.play-overlay .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); }
-/* 时间戳+浏览数叠加在媒体右下角（视频时让出 .dur 位置上移） */
+.play-overlay .dur { position: absolute; right: 8px; bottom: 32px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); }
+/* 时间戳+浏览数叠加在媒体右下角（dur 在其上方） */
 .media-overlay-meta { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); backdrop-filter: blur(4px); }
-/* 视频时长徽章在右下，时间戳上移避免重叠 */
-.thumb-wrap:has(.play-overlay) .media-overlay-meta { bottom: 32px; }
+/* 无视频时长徽章的图片：时间戳在最下 */
+.thumb-wrap:has(.play-overlay) .media-overlay-meta { bottom: 8px; }
+.thumb-wrap:not(:has(.play-overlay)) .media-overlay-meta { bottom: 8px; }
 
 /* 文件卡片：内容宽度 */
 .file-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); max-width: 100%; box-sizing: border-box; }

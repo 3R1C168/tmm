@@ -20,9 +20,8 @@
           </div>
         </div>
 
-        <!-- 影院模式浮层按钮：右上角悬浮，hover 显现，不占布局 -->
+        <!-- 影院模式浮层按钮：右上角悬浮，hover 显现，不占布局。网页全屏按钮已在控件条，此处只留下载/关闭 -->
         <div v-if="theater" class="mv-float-actions">
-          <button class="mv-icon-btn" @click="toggleTheater" title="退出影院模式 (Esc)"><Minimize :size="18" /></button>
           <button class="mv-icon-btn" @click="download" title="下载此媒体"><Download :size="16" /></button>
           <button class="mv-icon-btn" @click="close" title="关闭 (Esc)"><X :size="20" /></button>
         </div>
