@@ -99,6 +99,7 @@
                       >
                         <LazyThumb :src="api.mediaThumbUrl(current.id, m.id)" :placeholder="m.media?.stripped?.dataUri || ''" @load="onThumbLoad(m, $event)" @error="onThumbError" />
                         <span v-if="isVideo(m.media)" class="cell-play"><Play :size="32" /></span>
+                        <span v-if="m.media?.size" class="cell-dur">{{ fmtBytes(m.media.size) }}</span>
                       </div>
                     </div>
                     <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
@@ -908,7 +909,7 @@ function fmtDate(ts) {
   min-width: 200px;
   max-width: 464px; /* tt: 29rem */
   width: max-content; /* 内容定宽 */
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.3125; /* tt 行高 */
 }
 .bubble.media { padding: 4px; overflow: hidden; max-width: 472px; box-sizing: border-box; }
@@ -972,6 +973,7 @@ function fmtDate(ts) {
 .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.3); }
 .album-cell .cell-play svg { filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.album-cell .cell-dur { position: absolute; right: 5px; bottom: 5px; background: rgba(0,0,0,.55); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); pointer-events: none; }
 .bubble.album .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .dl-group { display: inline-flex; align-items: center; gap: 4px; border: none; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: var(--radius-sm); transition: .13s; }
 .dl-group:hover { background: var(--accent); color: #fff; }

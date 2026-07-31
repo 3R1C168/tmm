@@ -240,6 +240,20 @@ function setupPlyr() {
     controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings'],
     settings: ['speed'],
     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+    i18n: {
+      speed: '播放速度',
+      normal: '正常',
+      settings: '设置',
+      menuBack: '返回上一菜单',
+      play: '播放',
+      pause: '暂停',
+      mute: '静音',
+      unmute: '取消静音',
+      volume: '音量',
+      currentTime: '当前时间',
+      duration: '时长',
+      seek: '跳转',
+    },
     // CC/字幕功能整体关掉：控件列表不含 captions，设置菜单限 speed，
     // 这里再显式禁用字幕避免视频带轨道时自动启用。
     captions: { active: false, language: 'auto', update: false },
@@ -563,12 +577,14 @@ function fmtBytes(n) {
 :deep(.plyr__controls) {
   position: absolute !important;
   bottom: 0; left: 0; right: 0;
+  display: flex !important; align-items: center !important;
   background: linear-gradient(to top, rgba(0,0,0,.8), transparent) !important;
   padding: 24px 16px 8px !important;
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 .mv-overlay.theater :deep(.plyr__controls) { border-radius: 0; }
 :deep(.plyr__controls__item) { margin-right: 8px; }
+:deep(.plyr__theater-btn) { margin-left: 0; }
 
 /* 居中大播放按钮：半透明白毛玻璃 */
 :deep(.plyr__control--overlaid) {
@@ -597,7 +613,7 @@ function fmtBytes(n) {
 :deep(.plyr__progress input[type=range])::-webkit-slider-runnable-track {
   height: 100% !important; /* 覆盖 Plyr 默认 height: var(--plyr-range-track-height,5px) */
   border: none; border-radius: 3px;
-  background-image: linear-gradient(to right, #fff var(--value, 0%), transparent var(--value, 0%));
+  background-image: linear-gradient(to right, rgba(255,255,255,.55) var(--value, 0%), transparent var(--value, 0%));
 }
 :deep(.plyr__progress input[type=range])::-webkit-slider-thumb {
   -webkit-appearance: none; width: 0 !important; height: 0 !important; /* 覆盖默认 13px 圆点 */
