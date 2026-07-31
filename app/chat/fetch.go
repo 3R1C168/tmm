@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"sort"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/peers"
@@ -14,13 +15,14 @@ import (
 )
 
 // DialogInfo is a chat/dialog summary suitable for a service API (it adds
-// unread count to the CLI's Dialog).
+// unread count and pinned flag to the CLI's Dialog).
 type DialogInfo struct {
 	ID          int64  `json:"id"`
 	Type        string `json:"type"` // private | group | channel
 	VisibleName string `json:"visibleName"`
 	Username    string `json:"username,omitempty"`
 	UnreadCount int    `json:"unreadCount"`
+	Pinned      bool   `json:"pinned,omitempty"`
 }
 
 // FetchDialogs lists the account's dialogs for the service layer. It reuses
@@ -75,9 +77,16 @@ func FetchDialogs(ctx context.Context, c *telegram.Client, kvd storage.Storage) 
 		}
 		if dlg, ok := d.Dialog.(*tg.Dialog); ok {
 			info.UnreadCount = dlg.UnreadCount
+			info.Pinned = dlg.Pinned
 		}
 		result = append(result, info)
 	}
+
+	// 排序：置顶对话在前，其余保留 Telegram 返回顺序（本就是最后活动倒序）。
+	// 用 stable sort 保证非置顶之间不重排。
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].Pinned && !result[j].Pinned
+	})
 
 	return result, nil
 }

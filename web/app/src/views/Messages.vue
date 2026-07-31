@@ -809,14 +809,14 @@ function fmtDate(ts) {
 .chat-search { padding: 12px 14px; }
 .chat-search input { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
 .chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.chat-items { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
-.chat-item { display: flex; padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: .13s; align-items: center; }
-.chat-item:hover { background: var(--bg-hover); }
-.chat-item.active { background: var(--bg-active); }
+.chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); }
+.chat-item:hover { border-color: var(--accent); }
+.chat-item.active { border-color: var(--accent); background: var(--accent-soft); }
 .chat-item .meta { flex: 1; min-width: 0; }
 .chat-item .row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-item .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chat-item .unread { min-width: 19px; height: 19px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; flex: none; }
+.chat-item .unread { min-width: 20px; height: 20px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; flex: none; }
 .chat-item .preview { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 .load-more { text-align: center; padding: 10px; font-size: 12px; }
 .chat-foot { padding: 8px 14px; border-top: 1px solid var(--border); }
