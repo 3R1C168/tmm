@@ -312,6 +312,8 @@ function setupPlyr() {
   injectTheaterButton()
   injectSpeedButton()
 }
+
+function injectTheaterButton() {
   if (!plyr) return
   const controls = plyr.elements?.container?.querySelector('.plyr__controls')
   if (!controls) return
