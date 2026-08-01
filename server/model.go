@@ -85,6 +85,9 @@ type Task struct {
 
 	// runtime bookkeeping (not persisted meaningfully; rebuilt on load)
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// Speed is the current aggregate download speed (bytes/sec) across all
+	// files, maintained by progressAdapter for live UI display. Not persisted.
+	Speed int64 `json:"-"`
 
 	// mu guards mutable fields (Status, Files, Error, timestamps). It is not
 	// serialized.

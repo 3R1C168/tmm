@@ -34,6 +34,12 @@ type progressAdapter struct {
 	iter dl.Iter
 	// lastPush tracks the last SSE emit per file key for throttling.
 	lastPush map[string]time.Time
+
+	// task 级速率滑动窗口（最近 N 次采样的瞬时 bytes/sec，取平均，避免抖动）
+	speedMu       sync.Mutex
+	speedSamples  []int64
+	lastTotal     int64
+	lastSpeedTime time.Time
 }
 
 func newProgressAdapter(srv *Server, task *Task, opts dl.Options) *progressAdapter {
@@ -133,7 +139,39 @@ func (p *progressAdapter) OnDownload(elem downloader.Elem, state downloader.Prog
 	p.lastPush[key] = now
 	p.mu.Unlock()
 
+	p.updateSpeed()
 	p.srv.publishTask(p.task, "file")
+}
+
+// updateSpeed 用 task 总下载量的时间差算瞬时速率，滑动平均（最近 5 次），
+// 存入 task.Speed 供 taskSnapshot 输出。比前端按 SSE 差值算更准（不受 SSE 节流影响）。
+func (p *progressAdapter) updateSpeed() {
+	p.speedMu.Lock()
+	defer p.speedMu.Unlock()
+	now := time.Now()
+	total := p.task.TotalDownloaded()
+	if !p.lastSpeedTime.IsZero() && now.After(p.lastSpeedTime) {
+		dt := now.Sub(p.lastSpeedTime).Seconds()
+		if dt > 0 {
+			inst := int64(float64(total-p.lastTotal) / dt)
+			if inst >= 0 {
+				p.speedSamples = append(p.speedSamples, inst)
+				if len(p.speedSamples) > 5 {
+					p.speedSamples = p.speedSamples[1:]
+				}
+			}
+		}
+	}
+	p.lastTotal = total
+	p.lastSpeedTime = now
+	// 平均
+	var sum int64
+	for _, s := range p.speedSamples {
+		sum += s
+	}
+	if len(p.speedSamples) > 0 {
+		p.task.Speed = sum / int64(len(p.speedSamples))
+	}
 }
 
 func (p *progressAdapter) OnDone(elem downloader.Elem, derr error) {

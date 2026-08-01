@@ -97,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, watch } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { useAppStore } from '../stores/app'
@@ -109,35 +109,13 @@ const expanded = ref('')
 // --- 选中态：按 id 跟踪，切过滤/SSE 都不丢 ---
 const selected = reactive(new Set())
 
-// --- 速率追踪：滑动平均（最近 5 次采样），避免单次差值跳到几百 B 或几百 M ---
-// key=task id, value={dl, ts, samples: [speed...]}}
-const speedMap = reactive(new Map())
-function trackSpeed(t) {
-  if (t.status !== 'running') {
-    speedMap.delete(t.id)
-    return
-  }
-  const now = Date.now()
-  const prev = speedMap.get(t.id)
-  let inst = 0
-  if (prev && now > prev.ts) {
-    const dt = now - prev.ts
-    const bytes = t.downloaded - prev.dl
-    if (dt > 0 && bytes >= 0) inst = (bytes / dt) * 1000
-  }
-  const samples = prev ? prev.samples : []
-  samples.push(inst)
-  if (samples.length > 5) samples.shift() // 保留最近 5 次
-  speedMap.set(t.id, { dl: t.downloaded, ts: now, samples })
-}
+// 速率显示：用后端 SSE 推送的 t.speed（task 级聚合，滑动平均），比前端按
+// SSE 节流差值算更准。running 显示速度，否则显示已下/总大小。
 function speedText(t) {
   if (t.status !== 'running') {
     return t.totalSize > 0 ? `${fmtBytes(t.downloaded)} / ${fmtBytes(t.totalSize)}` : ''
   }
-  const v = speedMap.get(t.id)
-  if (!v || v.samples.length === 0) return '—'
-  const avg = v.samples.reduce((a, b) => a + b, 0) / v.samples.length
-  return avg > 0 ? `${fmtBytes(avg)}/s` : '—'
+  return t.speed > 0 ? `${fmtBytes(t.speed)}/s` : '—'
 }
 
 // --- 过滤：底层是 6 状态集合，默认全选 = 显示全部 ---
@@ -170,11 +148,6 @@ const filtered = computed(() =>
     .filter((t) => filterStatuses.has(t.status))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 )
-
-// SSE 推送（store.tasks 变化）时更新速率追踪
-watch(() => store.tasks, (tasks) => {
-  for (const t of tasks) trackSpeed(t)
-}, { deep: true })
 
 // 开始按钮可用状态：pending/paused/failed/interrupted/done 都能开始（done 重跑）
 function canStart(s) {

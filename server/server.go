@@ -343,6 +343,7 @@ func taskSnapshot(t *Task) map[string]any {
 		"fingerprint": t.Fingerprint,
 		"totalSize":   t.TotalSize(),
 		"downloaded":  t.TotalDownloaded(),
+		"speed":       t.Speed,
 	}
 }
 
