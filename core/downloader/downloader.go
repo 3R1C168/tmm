@@ -93,6 +93,12 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 		if err := d.resume(ctx, client, elem, state, threads); err != nil {
 			return errors.Wrap(err, "resume download")
 		}
+		// 完整性校验：gotd plain 模式可能提前退出（服务器返回短块被当 EOF），
+		// 导致部分 piece 没下。resume 后用 state.Complete() 兜底，缺块则报错，
+		// FinalizeElem 会保留 .tmp/.tdlstate 让下次继续补齐。
+		if !state.Complete() {
+			return errors.Errorf("incomplete after resume: %d/%d pieces", state.done, numPieces(state.size, state.partSize))
+		}
 		return nil
 	}
 
@@ -102,6 +108,14 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 		Parallel(ctx, newWriteAt(elem, d.opts.Progress, MaxPartSize))
 	if err != nil {
 		return errors.Wrap(err, "download")
+	}
+
+	// 全新下载同样校验完整性（state 由 newWriteAt 的 Mark 更新）。
+	// 提前退出会留下未置位的 piece，Complete() 检测出来。
+	if st := elem.Resume(); st != nil {
+		if !st.Complete() {
+			return errors.Errorf("incomplete: %d/%d pieces", st.done, numPieces(st.size, st.partSize))
+		}
 	}
 
 	return nil

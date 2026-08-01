@@ -74,6 +74,18 @@ func FinalizeElem(elem Elem, opts Options, it Iter, derr error) (finalPath strin
 		return "", derr
 	}
 
+	// 完整性校验：比对磁盘实际字节数与 Telegram 声明的 Size。
+	// gotd plain 模式可能因「服务器返回短块但非 EOF」提前退出，导致残缺文件
+	// 被当成功。这里拦住：不匹配则保留 .tmp + .tdlstate，返回错误让下次 resume 补齐。
+	if fi, serr := os.Stat(elem.ToPath()); serr == nil {
+		if want := elem.File().Size(); want > 0 && fi.Size() != want {
+			if st := elem.Resume(); st != nil {
+				_ = st.Flush()
+			}
+			return "", errors.Errorf("size mismatch: got %d want %d", fi.Size(), want)
+		}
+	}
+
 	if it != nil {
 		it.Finish(elem.Key())
 	}
