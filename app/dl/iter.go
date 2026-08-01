@@ -350,12 +350,21 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 		resume = nil
 	}
 
-	if resume == nil || resume.Complete() {
-		// fresh download, or a leftover complete state: truncate and start over
+	// 校验磁盘实际大小：state.Complete() 可能误报（bitmap 全满但实际缺块），
+	// 若磁盘 < 声明 size，强制把尾部 piece 标记为未完成，走 resume 补齐，不 truncate。
+	diskComplete := false
+	if resume != nil && resume.Complete() {
+		if fi, serr := os.Stat(path); serr == nil && fi.Size() == item.Size {
+			diskComplete = true
+		}
+	}
+
+	if resume == nil || (resume.Complete() && diskComplete) {
+		// 真正的全新下载，或磁盘确实完整（下完的残留 state）：truncate 重来
 		logctx.From(ctx).Info("fresh download (truncating)",
 			zap.String("path", path),
 			zap.Bool("resumeNil", resume == nil),
-			zap.Bool("resumeComplete", resume != nil && resume.Complete()))
+			zap.Bool("diskComplete", diskComplete))
 		if err = to.Truncate(0); err != nil {
 			_ = to.Close()
 			i.err = errors.Wrap(err, "truncate file")
@@ -367,6 +376,15 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 			return false, false
 		}
 		resume = downloader.NewState(downloader.StatePath(path), item.Size, downloader.MaxPartSize)
+	} else if resume != nil && resume.Complete() && !diskComplete {
+		// state 误报完成但磁盘不全：标记缺块，走 resume 补齐
+		if fi, _ := os.Stat(path); fi != nil {
+			resume.MarkMissingFrom(fi.Size())
+		}
+		missing := resume.Missing()
+		logctx.From(ctx).Info("resume after false-complete",
+			zap.String("path", path),
+			zap.Int("missingPieces", len(missing)))
 	} else {
 		missing := resume.Missing()
 		logctx.From(ctx).Info("resume partial download",

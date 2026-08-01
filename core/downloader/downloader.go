@@ -138,7 +138,7 @@ func (d *Downloader) ensureComplete(ctx context.Context, client *tg.Client, elem
 			return errors.Errorf("size overflow: got %d want %d", fi.Size(), want)
 		}
 		// 磁盘不足：把缺失的尾部 piece 强制标记为未完成，触发 resume 重下。
-		state.markMissingFrom(fi.Size())
+		state.MarkMissingFrom(fi.Size())
 		logctx.From(ctx).Warn("incomplete download, retrying tail",
 			zap.Int64("got", fi.Size()), zap.Int64("want", want), zap.Int("retry", i+1))
 		if err := d.resume(ctx, client, elem, state, threads); err != nil {

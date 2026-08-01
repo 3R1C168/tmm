@@ -202,11 +202,11 @@ func (s *State) HasProgress() bool {
 	return s.done > 0
 }
 
-// markMissingFrom 把从 offset（含）开始的 piece 全部标记为未完成，
+// MarkMissingFrom 把从 offset（含）开始的 piece 全部标记为未完成，
 // 让后续 Missing() 返回这些 piece 以便重新下载。
 // 用于「磁盘实际字节数 < 声明 size」时强制补齐尾部——弥补 state 与磁盘
 // 不同步、以及 gotd plain 模式提前退出导致的缺块。
-func (s *State) markMissingFrom(offset int64) {
+func (s *State) MarkMissingFrom(offset int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	startPiece := int(offset / int64(s.partSize))
