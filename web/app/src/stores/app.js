@@ -51,6 +51,10 @@ export const useAppStore = defineStore('app', {
         this.tasks = r.tasks || []
       } catch { /* ignore */ }
     },
+    // 批量操作：不在此处本地改 tasks，等 SSE 推送刷新（upsertTask）。
+    async batchAction(ids, action) {
+      return await api.batchTasks(ids, action) // { results: [{id, ok, error?}] }
+    },
     upsertTask(snap) {
       const i = this.tasks.findIndex((t) => t.id === snap.id)
       if (i >= 0) this.tasks.splice(i, 1, snap)
