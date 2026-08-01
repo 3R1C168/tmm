@@ -387,15 +387,19 @@ function fileLabel(f) {
 .spacer { flex: 1; }
 
 /* --- 任务卡片：4 段式单行（勾选 | 名+状态 ‖ 进度条 ‖ 速率 ‖ 按钮）---
-   段间用虚拟分割线（细竖线+留白），仿 Firefox 定制工具栏。 */
+   段间用虚拟分割线（细竖线+留白），仿 Firefox 定制工具栏。
+   自适应：名+进度条可收缩，速率+按钮固定，窄屏不重叠。 */
 .task-card { margin-bottom: 6px; padding: 8px 12px !important; }
-.trow { display: flex; align-items: center; gap: 0; }
-/* 多选框：垂直居中，独立段不加分隔线 */
+.trow { display: flex; align-items: center; gap: 0; min-width: 0; }
+/* 多选框：垂直居中，覆盖 el-checkbox 默认 margin */
 .pick { flex: none; align-self: center; margin-right: 12px; }
+.pick :deep(.el-checkbox) { margin-right: 0; height: auto; }
+.pick :deep(.el-checkbox__label) { display: none; } /* 无文字，去掉占位 */
 /* 段分隔：除多选框外，每段左侧加细竖线 + 留白 */
 .trow > .tname-wrap, .trow > .tprog-wrap, .trow > .tSpeed, .trow > .tactions {
   padding-left: 14px;
   position: relative;
+  min-width: 0;
 }
 .trow > .tname-wrap::before, .trow > .tprog-wrap::before, .trow > .tSpeed::before, .trow > .tactions::before {
   content: '';
@@ -404,15 +408,17 @@ function fileLabel(f) {
   width: 1px;
   background: var(--border);
 }
-/* 第1段：任务名+状态标签 */
-.tname-wrap { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; }
-.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-/* 第2段：进度条占中间，但限制最大宽度避免过长 */
-.tprog-wrap { flex: 1; min-width: 60px; max-width: 320px; }
-/* 第3段：速率/字节数，等宽避免跳动 */
-.tSpeed { flex: none; font-size: 11.5px; color: var(--text-2); min-width: 76px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 第1段：任务名+状态标签（可收缩，窄屏省略）*/
+.tname-wrap { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; }
+.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+/* 第2段：进度条吃剩余空间，可收缩（min-width:0 允许窄屏压缩）*/
+.tprog-wrap { flex: 1 1 auto; min-width: 60px; }
+/* 第3段：速率/字节数，固定宽度不收缩，等宽避免跳动 */
+.tSpeed { flex: none; font-size: 11.5px; color: var(--text-2); width: 84px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 第4段按钮：flex:none 固定，margin-left:auto 推到最右 */
+.tactions { flex: none; }
 
-/* meta/错误/详情在主行下方，左对齐到任务名（避开多选框宽度+留白）*/
+/* meta/错误/详情在主行下方，左缩进对齐任务名（避开多选框）*/
 .tmeta { font-size: 11px; margin-top: 4px; margin-left: 40px; display: flex; flex-wrap: wrap; gap: 5px; }
 .terror { margin-top: 4px; margin-left: 40px; color: var(--red); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
 
