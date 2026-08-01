@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 
+	"github.com/go-faster/errors"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
@@ -84,6 +85,31 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+type batchRequest struct {
+	IDs    []string `json:"ids"`
+	Action string   `json:"action"` // pause | resume | delete
+}
+
+func (s *Server) handleBatchTasks(w http.ResponseWriter, r *http.Request) {
+	var req batchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if len(req.IDs) == 0 {
+		writeErr(w, http.StatusBadRequest, errors.New("ids must not be empty"))
+		return
+	}
+	switch req.Action {
+	case "pause", "resume", "delete":
+	default:
+		writeErr(w, http.StatusBadRequest, errors.Errorf("invalid action: %s", req.Action))
+		return
+	}
+	results := s.tasks.Batch(r.Context(), req.IDs, req.Action)
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
 // handleTaskEvents streams this task's events. It filters the global stream by

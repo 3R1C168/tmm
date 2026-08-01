@@ -1,7 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -77,4 +81,43 @@ func TestBatchPartialFailure(t *testing.T) {
 	require.True(t, res[0].OK)
 	require.False(t, res[1].OK)
 	require.Contains(t, res[1].Error, "not found")
+}
+
+func TestHandleBatchTasksDelete(t *testing.T) {
+	s := newBatchTestServer(t)
+	require.NoError(t, s.store.upsert(&Task{ID: "h1", Status: StatusDone, Files: []*FileEntry{}}))
+	require.NoError(t, s.store.upsert(&Task{ID: "h2", Status: StatusDone, Files: []*FileEntry{}}))
+
+	body, _ := json.Marshal(map[string]any{"ids": []string{"h1", "h2"}, "action": "delete"})
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/batch", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	s.handleBatchTasks(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Results []BatchResult `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Results, 2)
+	for _, r := range resp.Results {
+		require.True(t, r.OK)
+	}
+}
+
+func TestHandleBatchTasksValidation(t *testing.T) {
+	s := newBatchTestServer(t)
+
+	// 空 ids → 400
+	body, _ := json.Marshal(map[string]any{"ids": []string{}, "action": "delete"})
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/batch", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	s.handleBatchTasks(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// 非法 action → 400
+	body, _ = json.Marshal(map[string]any{"ids": []string{"x"}, "action": "bogus"})
+	req = httptest.NewRequest(http.MethodPost, "/api/tasks/batch", bytes.NewReader(body))
+	rec = httptest.NewRecorder()
+	s.handleBatchTasks(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
