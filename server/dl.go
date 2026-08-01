@@ -61,19 +61,44 @@ func (p *progressAdapter) OnAdd(elem downloader.Elem) {
 	if !ok {
 		return
 	}
-	fe := &FileEntry{
-		Key:      e.Key().String(),
-		Name:     e.Name(),
-		Path:     e.ToPath(),
-		FromName: e.FromName(),
-		FromID:   e.FromID(),
-		MsgID:    e.MsgID(),
-		Size:     e.File().Size(),
-		Status:   FileRunning,
-	}
+	key := e.Key().String()
+
 	p.task.mu.Lock()
-	p.task.Files = append(p.task.Files, fe)
+	// 去重：同一文件（按 Key）只保留一个 FileEntry。
+	// resume 会重新跑 dl.Run，iter 不跳过未 Finish 的文件，会再次 OnAdd；
+	// 这里命中已有条目就更新它（重置为 Running），避免 Files 列表无限累加。
+	var action string
+	if existing := p.findFileLocked(key); existing != nil {
+		existing.Status = FileRunning
+		existing.Error = ""
+		// 刷新可能变化的元数据（路径在 resume 时可能变）
+		existing.Name = e.Name()
+		existing.Path = e.ToPath()
+		existing.Caption = e.Caption()
+		existing.Size = e.File().Size()
+		action = "updated"
+	} else {
+		p.task.Files = append(p.task.Files, &FileEntry{
+			Key:      key,
+			Name:     e.Name(),
+			Path:     e.ToPath(),
+			FromName: e.FromName(),
+			FromID:   e.FromID(),
+			MsgID:    e.MsgID(),
+			Caption:  e.Caption(),
+			Size:     e.File().Size(),
+			Status:   FileRunning,
+		})
+		action = "added"
+	}
+	fileCount := len(p.task.Files)
 	p.task.mu.Unlock()
+
+	logctx.From(context.Background()).Info("task file "+action,
+		zap.String("task", p.task.ID),
+		zap.String("file", key),
+		zap.Int("msgId", e.MsgID()),
+		zap.Int("totalFiles", fileCount))
 
 	p.srv.publishTask(p.task, "file")
 }
@@ -212,10 +237,15 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 		Continue: true,
 		Restart:  o.Restart,
 
+		// 并发 clamp：防止无界连接池（PoolSize=0 在 gotd 里表示无限连接），
+		// 并把文件级/piece 级并发限制在不触发 Telegram 限流的安全范围。
+		// 用户传 0 时用推荐值；传非零值也夹在安全区间内。
+		// 依据：单账号单 DC 约 30 并发 chunk 持续数秒才触发 FLOOD_WAIT，
+		// Limit(3)×Threads(8)=24 留有缓冲，且 floodwait 中间件会自动重试。
 		Runtime: runopts.Options{
-			PoolSize:          o.PoolSize,
-			Threads:           o.Threads,
-			Limit:             o.Limit,
+			PoolSize:          clampPoolSize(o.PoolSize),
+			Threads:           clampInt(o.Threads, 8, 1, 8),
+			Limit:             clampInt(o.Limit, 3, 1, 4),
 			Delay:             time.Duration(o.DelayMs) * time.Millisecond,
 			ReconnectTimeout:  runopts.DefaultReconnectTimeout,
 			DisableProgressPS: true,
@@ -225,4 +255,30 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 		IterHook: adapter.hook,
 	}
 	return opts, nil
+}
+
+// clampInt returns def when v==0, otherwise clamps v into [lo, hi].
+func clampInt(v, def, lo, hi int) int {
+	if v == 0 {
+		return def
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// clampPoolSize returns a safe pool size when v==0 (gotd: 0 means infinity,
+// which lets connections grow unbounded); otherwise at least 16.
+func clampPoolSize(v int) int {
+	if v <= 0 {
+		return 24
+	}
+	if v < 16 {
+		return 16
+	}
+	return v
 }

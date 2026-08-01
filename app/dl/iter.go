@@ -390,6 +390,11 @@ func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from pee
 		return false, false
 	}
 
+	logctx.From(ctx).Info("album expanded",
+		zap.Int64("dialog_id", from.ID()),
+		zap.Int("anchor_id", message.ID),
+		zap.Int("found", len(grouped)))
+
 	// mark the album as expanded so the iterator skips its other messages
 	if gid, ok := message.GetGroupedID(); ok {
 		i.markGroupProcessed(groupKeyOf(from.InputPeer(), gid))

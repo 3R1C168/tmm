@@ -35,6 +35,7 @@ type FileEntry struct {
 	FromName   string     `json:"fromName"`
 	FromID     int64      `json:"fromId"`
 	MsgID      int        `json:"msgId"`
+	Caption    string     `json:"caption"` // source message text (first line shown in UI)
 	Size       int64      `json:"size"`
 	Downloaded int64      `json:"downloaded"`
 	Status     FileStatus `json:"status"`

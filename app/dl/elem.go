@@ -61,6 +61,10 @@ func (i *iterElem) FromName() string { return i.from.VisibleName() }
 // MsgID returns the id of the source message.
 func (i *iterElem) MsgID() int { return i.fromMsg.ID }
 
+// Caption returns the source message text (caption), empty when the message
+// has no text. Used by the service backend to label downloaded files.
+func (i *iterElem) Caption() string { return i.fromMsg.Message }
+
 // ToPath returns the on-disk path of the (temporary) download target.
 func (i *iterElem) ToPath() string { return i.to.Name() }
 

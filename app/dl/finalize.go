@@ -42,6 +42,8 @@ type Elem interface {
 	FromID() int64
 	FromName() string
 	MsgID() int
+	// Caption returns the source message text, empty when none.
+	Caption() string
 	ToPath() string
 	FileDate() int64
 	// Name is the original media file name.

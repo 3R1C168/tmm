@@ -216,16 +216,33 @@ func GetGroupedMessages(ctx context.Context, c *tg.Client, peer tg.InputPeerClas
 		return nil, errors.New("not grouped message")
 	}
 	// https://telegram.org/blog/albums-saved-messages
-	// Each album can include up to 10 photos or videos
-	batchSize := 20
+	// Each album can include up to 10 photos or videos.
 
-	it := query.Messages(c).GetHistory(peer).
-		OffsetID(msg.ID + 11). // from latest to oldest
-		BatchSize(batchSize).Iter()
+	// 原实现用 OffsetID(msg.ID+11) 只往「旧」方向翻页；当传入的锚点是组里
+	// 最旧的消息时，比它新的同组成员（msgId 更大）落在窗口外被漏拉。
+	// 修复：把窗口扩大到以锚点为中心、覆盖 ±约 20 条 id 空间。相册成员
+	// 由客户端一次性连续分配 id，跨度远小于窗口；grouped_id 过滤兜底，
+	// 即使夹入非本组消息也不会误收。
+	const limit = 30
+	const offsetPast = 12 // 起点设在比锚点新 12 的位置，往旧翻 30 条覆盖 [msg.ID-18, msg.ID+12]
 
-	messages := make([]*tg.Message, 0, batchSize)
-	for i := 0; it.Next(ctx) && i < batchSize; i++ {
-		m, ok := it.Value().Msg.(*tg.Message)
+	result, err := c.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+		Peer:     peer,
+		OffsetID: msg.ID + offsetPast,
+		Limit:    limit,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "get history")
+	}
+
+	mm, ok := result.AsModified()
+	if !ok {
+		return nil, nil
+	}
+
+	messages := make([]*tg.Message, 0, limit)
+	for _, mc := range mm.GetMessages() {
+		m, ok := mc.(*tg.Message)
 		if !ok {
 			continue
 		}

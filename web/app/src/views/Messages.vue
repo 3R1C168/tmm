@@ -868,7 +868,7 @@ function fmtDate(ts) {
 .chat-refresh-btn .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); }
+.chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
 .chat-item:hover { border-color: var(--accent); }
 .chat-item.active { border-color: var(--accent); background: var(--accent-soft); }
 .chat-item .meta { flex: 1; min-width: 0; }
@@ -920,7 +920,7 @@ function fmtDate(ts) {
   padding: 9px 12px 8px; /* 纯文字气泡：上下 9/8px，左右 12px，不贴边（tt 文字气泡比媒体气泡 padding 大） */
   border-radius: var(--radius-lg); /* tt: 1rem */
   background: var(--bg-panel);
-  box-shadow: 0 1px 2px rgba(0,0,0,.13);
+  box-shadow: var(--shadow);
   min-width: 200px;
   max-width: 464px; /* tt: 29rem */
   width: max-content; /* 内容定宽 */

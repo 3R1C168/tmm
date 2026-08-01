@@ -12,3 +12,6 @@ web/app/dist/
 moov.log
 serve.log
 *.log
+
+# ZCode 工作目录（spec/plan/ledger，不进主仓库）
+.superpowers/

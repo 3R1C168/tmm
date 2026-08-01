@@ -60,7 +60,7 @@
             v-if="t.totalSize > 0"
             :percentage="percent(t)"
             :status="progressStatus(t.status)"
-            :stroke-width="8"
+            :stroke-width="4"
             class="tprog"
           />
 
@@ -70,6 +70,9 @@
             <div v-for="f in t.files" :key="f.key" class="file-row">
               <span class="fstatus" :class="f.status"><component :is="fileIcon(f.status)" :size="14" /></span>
               <span class="fname" :title="f.path">{{ f.name }}</span>
+              <span v-if="firstLine(f.caption)" class="fcap" :title="f.caption">
+                <MessageSquare :size="11" /> {{ firstLine(f.caption) }}
+              </span>
               <span class="fsize muted">{{ fmtBytes(f.downloaded) }} / {{ fmtBytes(f.size) }}</span>
               <span v-if="f.error" class="ferr" :title="f.error">失败</span>
             </div>
@@ -78,28 +81,30 @@
 
         <div class="tactions">
           <el-button
-            v-if="t.status === 'running'"
-            size="small"
-            @click="pause(t)"
-          >暂停</el-button>
-          <el-button
-            v-else-if="['pending', 'paused', 'failed', 'interrupted'].includes(t.status)"
+            class="act-btn"
             size="small"
             type="primary"
+            :disabled="!['pending', 'paused', 'failed', 'interrupted', 'done'].includes(t.status)"
             @click="resume(t)"
           >开始</el-button>
           <el-button
-            v-if="t.files?.length"
+            class="act-btn"
             size="small"
-            text
-            @click="expanded = expanded === t.id ? '' : t.id"
-          >{{ expanded === t.id ? '收起' : '详情' }}</el-button>
+            :disabled="t.status !== 'running'"
+            @click="pause(t)"
+          >暂停</el-button>
           <el-button
+            class="act-btn"
             size="small"
-            text
             type="danger"
             @click="remove(t)"
           >删除</el-button>
+          <el-button
+            class="act-btn"
+            size="small"
+            :disabled="!t.files?.length"
+            @click="expanded = expanded === t.id ? '' : t.id"
+          >{{ expanded === t.id ? '收起' : '详情' }}</el-button>
         </div>
       </div>
     </div>
@@ -111,7 +116,7 @@ import { ref, computed, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { useAppStore } from '../stores/app'
-import { Clock, Download, Pause, Check, X, TriangleAlert } from 'lucide-vue-next'
+import { Clock, Download, Pause, Check, X, TriangleAlert, MessageSquare } from 'lucide-vue-next'
 
 const store = useAppStore()
 const expanded = ref('')
@@ -203,7 +208,8 @@ async function batchDelete() {
     })
   } catch { return }
   try {
-    await store.batchAction(ids, 'delete')
+    const r = await store.batchAction(ids, 'delete')
+    removeDeletedFromStore(r)
     selected.clear()
   } catch (e) { ElMessage.error(e.message) }
 }
@@ -218,7 +224,8 @@ async function clearCompleted() {
     })
   } catch { return }
   try {
-    await store.batchAction(ids, 'delete')
+    const r = await store.batchAction(ids, 'delete')
+    removeDeletedFromStore(r)
     ElMessage.success('已清空')
   } catch (e) { ElMessage.error(e.message) }
 }
@@ -238,6 +245,13 @@ function reportFailures(r, total) {
   else ElMessage.warning(`${total - fails.length}/${total} 成功，${fails.length} 个失败`)
 }
 
+// delete 后端不发 SSE（任务已无快照可推），前端按 batch 结果移除成功的 id
+function removeDeletedFromStore(r) {
+  const deleted = new Set((r?.results || []).filter((x) => x.ok).map((x) => x.id))
+  if (!deleted.size) return
+  store.tasks = store.tasks.filter((t) => !deleted.has(t.id))
+}
+
 // --- 单条操作（保留现有，删除时同步清 selected）---
 async function pause(t) {
   try { await api.pauseTask(t.id) } catch (e) { ElMessage.error(e.message) }
@@ -254,6 +268,7 @@ async function remove(t) {
   try {
     await api.deleteTask(t.id)
     selected.delete(t.id)
+    store.tasks = store.tasks.filter((x) => x.id !== t.id)
     ElMessage.success('已删除')
   } catch (e) { ElMessage.error(e.message) }
 }
@@ -292,6 +307,13 @@ function fmtTime(t) {
   const d = new Date(t)
   return d.toLocaleString('zh-CN', { hour12: false })
 }
+// 取消息文本首行，限 30 字（超出省略）。空文本返回空串，调用方据此决定是否显示。
+function firstLine(text, max = 30) {
+  if (!text) return ''
+  const line = String(text).split(/\r?\n/)[0].trim()
+  if (!line) return ''
+  return line.length > max ? line.slice(0, max) + '…' : line
+}
 </script>
 
 <style scoped>
@@ -327,12 +349,12 @@ function fmtTime(t) {
 
 .spacer { flex: 1; }
 
-/* --- 任务卡片（保留现有，加 pick 复选框）--- */
-.task-card { margin-bottom: 12px; }
-.trow { display: flex; align-items: flex-start; gap: 12px; }
-.pick { flex: none; margin-top: 14px; }
+/* --- 任务卡片（紧凑：小图标/细进度条/压间距）--- */
+.task-card { margin-bottom: 6px; padding: 8px 10px !important; }
+.trow { display: flex; align-items: flex-start; gap: 10px; }
+.pick { flex: none; margin-top: 8px; }
 .tico {
-  width: 42px; height: 42px; flex: none; border-radius: var(--radius); display: flex;
+  width: 32px; height: 32px; flex: none; border-radius: var(--radius-sm); display: flex;
   align-items: center; justify-content: center;
   background: var(--bg-hover);
 }
@@ -344,22 +366,40 @@ function fmtTime(t) {
 .tico.s-interrupted { color: #eab308; }
 
 .tmain { flex: 1; min-width: 0; }
-.tline1 { display: flex; align-items: center; gap: 10px; }
-.tname { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tmeta { font-size: 12px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; }
-.tprog { margin-top: 10px; max-width: 560px; }
-.terror { margin-top: 8px; color: var(--red); font-size: 12.5px; display: flex; align-items: center; gap: 4px; }
+.tline1 { display: flex; align-items: center; gap: 8px; }
+.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tmeta { font-size: 11px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 5px; }
+.tprog { margin-top: 5px; max-width: 560px; }
+.terror { margin-top: 5px; color: var(--red); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
 
-.files { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
-.file-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-.fstatus { width: 18px; display: inline-flex; align-items: center; justify-content: center; }
+.files { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
+.file-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+.fstatus { width: 16px; display: inline-flex; align-items: center; justify-content: center; }
 .fstatus.pending { color: var(--text-3); }
 .fstatus.running { color: #3b82f6; }
 .fstatus.done { color: var(--green); }
 .fstatus.failed { color: var(--red); }
 .fname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 消息文本首行：紧跟文件名右侧（margin-left 造 5-10 字间距感），muted 灰，限宽省略 */
+.fcap { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: 24px; font-size: 10.5px; color: var(--text-3); max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fsize { flex: none; }
 .ferr { color: var(--red); flex: none; }
 
-.tactions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+/* 按钮横排 + 边框明显（亮/暗都清晰，disabled 仍可辨识）*/
+.tactions { display: flex; flex-direction: row; flex-wrap: wrap; gap: 5px; flex: none; align-items: center; align-self: center; }
+.tactions :deep(.act-btn) {
+  margin-left: 0 !important;
+  border-width: 1px !important;
+  font-weight: 500;
+}
+/* disabled 不能淡到看不见 —— 边框保留、文字半透明 */
+.tactions :deep(.act-btn.is-disabled) {
+  opacity: .6;
+  border-color: var(--border) !important;
+}
+/* 亮色模式：default 按钮边框加深，避免与背景糊掉 */
+:deep(.act-btn:not(.el-button--primary):not(.el-button--danger)):not(.is-disabled) {
+  border-color: var(--text-3) !important;
+  color: var(--text-1) !important;
+}
 </style>

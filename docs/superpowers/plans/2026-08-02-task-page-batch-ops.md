@@ -215,29 +215,13 @@ cd tdl && go test ./server/ -run TestBatch -v
 ```
 Expected: 4 个测试全 PASS。
 
-- [ ] **Step 7: 补测试 — resume 状态拒绝路径**
+- [ ] **Step 7: resume 状态拒绝路径 — 跳过（不写此测试）**
 
-resume 的 `accounts.ensure` 走真实 telegram，单元测试里跑不通。但 resume 内部的状态校验在 ensure **之前**（task.go:155-165），所以「非法状态被拒绝」可在 ensure 之前测到，「合法状态因 account 失败」可证明状态校验通过。追加：
+**原计划在此写 `TestBatchResumeStatusCheck`，实现时发现测试前提不成立，已删除。**
 
-```go
-// TestBatchResumeStatusCheck 验证 resume 的状态校验：running/pending 被拒（ok:false），
-// paused 会通过状态校验、但随后在 accounts.ensure 失败（测试环境无 telegram）——
-// 这正好证明状态校验逻辑生效。
-func TestBatchResumeStatusCheck(t *testing.T) {
-	s := newBatchTestServer(t)
-	require.NoError(t, s.store.upsert(&Task{ID: "run1", Status: StatusRunning, Files: []*FileEntry{}}))
-	require.NoError(t, s.store.upsert(&Task{ID: "pa1", Status: StatusPaused, Files: []*FileEntry{}}))
+原因：`newTestServer`（spa_test.go:14）不初始化 `s.accounts`，resume 走到 `m.srv.accounts.ensure()` 会 nil 指针 panic 而非返回 error。要修复需造可用 accountManager fixture（接近 mock telegram），违背 YAGNI。resume 的状态校验是 `task.go:155-165` 既有逻辑（本任务未改），Batch 对 resume 是 `m.resume(ctx,id)` 透传 + error 收集——后者已被 `TestBatchPartialFailure` 覆盖相同路径。resume 实际正确性由 Task 7 curl + Task 8 用户实测覆盖。
 
-	res := s.tasks.Batch(context.Background(), []string{"run1", "pa1"}, "resume")
-	require.Len(t, res, 2)
-	// running 不允许 resume → 状态校验拒绝
-	require.False(t, res[0].OK)
-	require.Contains(t, res[0].Error, "cannot resume")
-	// paused 允许 resume → 通过状态校验，但 accounts.ensure 会失败（测试环境无账号）
-	require.False(t, res[1].OK)
-	require.Contains(t, res[1].Error, "account") // "open account: ..." 或 "is not logged in"
-}
-```
+**直接进 Step 8。**
 
 - [ ] **Step 8: 运行 + 全套基线**
 
