@@ -74,6 +74,7 @@
                 <MessageSquare :size="11" /> {{ firstLine(f.caption) }}
               </span>
               <span v-if="f.size > 0" class="fsize muted">{{ fmtBytes(f.downloaded) }} / {{ fmtBytes(f.size) }}</span>
+              <span v-else-if="f.status === 'done'" class="fsize muted">已完成（已存在）</span>
               <span v-else-if="f.status === 'pending'" class="fsize muted">排队中</span>
               <span v-if="f.error" class="ferr" :title="f.error">失败</span>
             </div>

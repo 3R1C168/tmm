@@ -323,6 +323,15 @@ func (m *taskManager) run(id string) {
 	switch {
 	case err == nil:
 		task.Status = StatusDone
+		// dl.Run 成功完成 = iter 把所有消息都处理了。但 SkipSame 命中的文件
+		// （磁盘已有同名同大小）会被 iter 跳过、不触发 OnAdd，预填的 pending
+		// FileEntry 残留。把这些标为 done，语义正确（文件确实在磁盘上），
+		// 也避免「task done 但有 pending 文件」的矛盾显示。
+		for _, f := range task.Files {
+			if f.Status == FilePending {
+				f.Status = FileDone
+			}
+		}
 	case errors.Is(err, context.Canceled):
 		task.Status = StatusPaused
 	default:
