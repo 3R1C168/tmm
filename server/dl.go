@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -205,21 +206,43 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 
 	// resolve direct message selections into dialogs
 	var dialogs []*tmessage.Dialog
+	// 预填：任务一开始就把所有选中的 msgId 列入 FileEntry（pending/排队中），
+	// 让用户立即看到完整文件清单。OnAdd 触发时 Key 命中已存在条目 → 更新为 running。
+	// 去重：resume 会再跑 buildDlOptions，已有的 Key 不重复预填。
+	task.mu.Lock()
+	existingKeys := make(map[string]bool, len(task.Files))
+	for _, f := range task.Files {
+		existingKeys[f.Key] = true
+	}
 	for _, sel := range task.Selected {
 		if len(sel.MsgIDs) == 0 {
 			continue
 		}
 		peer, err := tutil.GetInputPeer(ctx, a.peers, sel.ChatID)
 		if err != nil {
+			task.mu.Unlock()
 			return dl.Options{}, errors.Wrapf(err, "解析会话 %s 失败", sel.ChatID)
 		}
+		peerID := tutil.GetInputPeerID(peer.InputPeer())
 		ids := append([]int(nil), sel.MsgIDs...)
 		sort.Ints(ids)
+		for _, mid := range ids {
+			key := fmt.Sprintf("%d/%d", peerID, mid)
+			if !existingKeys[key] {
+				task.Files = append(task.Files, &FileEntry{
+					Key:    key,
+					MsgID:  mid,
+					Status: FilePending, // 排队中，等 OnAdd 标 running
+				})
+				existingKeys[key] = true
+			}
+		}
 		dialogs = append(dialogs, &tmessage.Dialog{
 			Peer:     peer.InputPeer(),
 			Messages: ids,
 		})
 	}
+	task.mu.Unlock()
 
 	opts := dl.Options{
 		Dir:        dir,
