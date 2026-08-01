@@ -237,8 +237,7 @@ function setupPlyr() {
   const savedVol = parseFloat(localStorage.getItem('tmm-volume') || '0.5')
   const vol = isNaN(savedVol) ? 0.5 : Math.min(1, Math.max(0, savedVol))
   plyr = new Plyr(el, {
-    controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings'],
-    settings: ['speed'],
+    controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume'],
     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
     i18n: {
       speed: '播放速度',
@@ -311,7 +310,7 @@ function setupPlyr() {
   // 用 DOM 插入一个与 Plyr 原生按钮同风格的按钮，点击触发 theater 模式
   // （网页全屏，非浏览器全屏 API）。
   injectTheaterButton()
-  hijackSpeedMenu()
+  injectSpeedButton()
 }
 
 function injectTheaterButton() {
@@ -337,42 +336,15 @@ function updateTheaterBtnIcon(btn, isTheater) {
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>'
 }
 
-// 劫持 Plyr settings 菜单：保留原生齿轮按钮和菜单弹出，但当菜单显示
-// "播放速度"时，把 Plyr 默认的选项列表替换成横向滑块（仿音量调节体验）。
+// 齿轮速度按钮：hover 展开竖向面板（顶部速率 + 横向滑块），仿音量 hover。
+// 拖动 snap 到档位；点击齿轮循环切档。
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
-function hijackSpeedMenu() {
+const GEAR_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
+function injectSpeedButton() {
   if (!plyr) return
-  // 监听 Plyr 的 menu 事件——菜单显示时检查是否是 speed 子菜单
-  plyr.on('loadedmetadata', () => {
-    // 主动注入：在 Plyr 创建菜单 DOM 后 hook
-    hijackOnce()
-  })
-  // 也监听 Plyr 控件条点击（菜单打开时机）
-  const container = plyr.elements?.container
-  if (!container) return
-  container.addEventListener('click', () => setTimeout(hijackOnce, 0), true)
-  plyr.on('canplay', hijackOnce)
-}
-
-function hijackOnce() {
-  if (!plyr) return
-  const menu = plyr.elements?.container?.querySelector('.plyr__menu__container')
-  if (!menu) return
-  // 找到速度选项的按钮（Plyr 用 data-plyr="speed" 标记）
-  const speedBtn = menu.querySelector('[data-plyr="speed"]')
-  if (!speedBtn) return
-  // 已替换过
-  if (menu.querySelector('.plyr__speed-slider')) return
-
-  // 找到选项列表容器（.plyr__menu__value 后面跟着 radio 列表）
-  const list = menu.querySelector('.plyr__menu__value')?.parentElement
-  if (!list) return
-
-  // 隐藏原始选项列表，插入滑块
-  const radios = list.querySelectorAll('.plyr__menu__value, [data-plyr="speed-option"], .plyr__menu__container label, .plyr__menu__container button')
-  // Plyr 速度选项是 input[type=radio] 在 form 里，直接隐藏整个 form
-  const form = list.querySelector('form') || list
-  if (form) form.style.display = 'none'
+  const controls = plyr.elements?.container?.querySelector('.plyr__controls')
+  if (!controls) return
+  if (controls.querySelector('.plyr__speed-wrap')) return
 
   const min = SPEED_OPTIONS[0], max = SPEED_OPTIONS[SPEED_OPTIONS.length - 1]
   const speedToValue = (s) => (s - min) / (max - min) * 100
@@ -380,15 +352,24 @@ function hijackOnce() {
     const exact = min + (v / 100) * (max - min)
     return SPEED_OPTIONS.reduce((best, opt) => Math.abs(opt - exact) < Math.abs(best - exact) ? opt : best, SPEED_OPTIONS[0])
   }
-  const cur = plyr.speed || 1
-  const slider = document.createElement('div')
-  slider.className = 'plyr__speed-slider'
-  slider.innerHTML = `<div class="plyr__speed-rate">${cur}x</div>
-    <input class="plyr__speed-range" type="range" min="0" max="100" step="1" value="${speedToValue(cur)}">`
-  list.appendChild(slider)
 
-  const range = slider.querySelector('input')
-  const rate = slider.querySelector('.plyr__speed-rate')
+  const wrap = document.createElement('div')
+  wrap.className = 'plyr__speed-wrap'
+  wrap.innerHTML = `<button class="plyr__control plyr__speed-btn" type="button" aria-label="播放速度" title="播放速度">${GEAR_SVG}</button>
+    <div class="plyr__speed-popup">
+      <span class="plyr__speed-rate">1.0x</span>
+      <input class="plyr__speed-range" type="range" min="0" max="100" step="1" value="${speedToValue(1)}">
+    </div>`
+  controls.appendChild(wrap)
+
+  const btn = wrap.querySelector('.plyr__speed-btn')
+  const popup = wrap.querySelector('.plyr__speed-popup')
+  const range = wrap.querySelector('input')
+  const rate = wrap.querySelector('.plyr__speed-rate')
+
+  wrap.addEventListener('mouseenter', () => popup.classList.add('show'))
+  wrap.addEventListener('mouseleave', () => popup.classList.remove('show'))
+
   range.addEventListener('input', (e) => {
     const s = valueToSpeed(Number(e.target.value))
     if (plyr) plyr.speed = s
@@ -399,6 +380,15 @@ function hijackOnce() {
     if (plyr) plyr.speed = s
     rate.textContent = s + 'x'
     range.value = speedToValue(s)
+  })
+  btn.addEventListener('click', (e) => {
+    e.preventDefault()
+    const cur = plyr?.speed || 1
+    const idx = SPEED_OPTIONS.indexOf(cur)
+    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length]
+    if (plyr) plyr.speed = next
+    rate.textContent = next + 'x'
+    range.value = speedToValue(next)
   })
 }
 
@@ -662,10 +652,12 @@ function fmtBytes(n) {
 :deep(.plyr__controls__item) { margin-right: 8px; }
 :deep(.plyr__theater-btn) { margin-left: 0; }
 /* 速度按钮 + 竖向滑块弹窗 */
-/* 原生 settings 菜单里的速度滑块（替换 Plyr 默认选项列表） */
-:deep(.plyr__speed-slider) { padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-:deep(.plyr__speed-rate) { font-size: 12px; font-weight: 600; }
-:deep(.plyr__speed-range) { width: 140px; margin: 0; -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,.3); border-radius: 2px; cursor: pointer; accent-color: var(--accent); }
+/* 齿轮速度按钮：hover 弹出竖向面板（速率在顶部 + 横向滑块），仿音量 */
+:deep(.plyr__speed-wrap) { position: relative; display: flex; align-items: center; }
+:deep(.plyr__speed-popup) { position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; display: none; flex-direction: column; align-items: center; gap: 6px; padding: 10px 12px; background: rgba(0,0,0,.8); border-radius: var(--radius-sm); backdrop-filter: blur(8px); z-index: 20; }
+:deep(.plyr__speed-popup.show) { display: flex; }
+:deep(.plyr__speed-rate) { font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; }
+:deep(.plyr__speed-range) { width: 120px; margin: 0; -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,.3); border-radius: 2px; cursor: pointer; accent-color: var(--accent); }
 
 /* 居中大播放按钮：半透明白毛玻璃 */
 :deep(.plyr__control--overlaid) {
