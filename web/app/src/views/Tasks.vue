@@ -109,8 +109,8 @@ const expanded = ref('')
 // --- 选中态：按 id 跟踪，切过滤/SSE 都不丢 ---
 const selected = reactive(new Set())
 
-// --- 速率追踪：存每个 task 上次的 downloaded + 时间戳，upsertTask 时算差值 ---
-// key=task id, value={dl, ts, speed}
+// --- 速率追踪：滑动平均（最近 5 次采样），避免单次差值跳到几百 B 或几百 M ---
+// key=task id, value={dl, ts, samples: [speed...]}}
 const speedMap = reactive(new Map())
 function trackSpeed(t) {
   if (t.status !== 'running') {
@@ -119,21 +119,25 @@ function trackSpeed(t) {
   }
   const now = Date.now()
   const prev = speedMap.get(t.id)
+  let inst = 0
   if (prev && now > prev.ts) {
     const dt = now - prev.ts
     const bytes = t.downloaded - prev.dl
-    if (dt > 0 && bytes >= 0) speedMap.set(t.id, { dl: t.downloaded, ts: now, speed: (bytes / dt) * 1000 })
-    else speedMap.set(t.id, { dl: t.downloaded, ts: now, speed: prev.speed })
-  } else {
-    speedMap.set(t.id, { dl: t.downloaded, ts: now, speed: 0 })
+    if (dt > 0 && bytes >= 0) inst = (bytes / dt) * 1000
   }
+  const samples = prev ? prev.samples : []
+  samples.push(inst)
+  if (samples.length > 5) samples.shift() // 保留最近 5 次
+  speedMap.set(t.id, { dl: t.downloaded, ts: now, samples })
 }
 function speedText(t) {
   if (t.status !== 'running') {
     return t.totalSize > 0 ? `${fmtBytes(t.downloaded)} / ${fmtBytes(t.totalSize)}` : ''
   }
-  const s = speedMap.get(t.id)
-  return s && s.speed > 0 ? `${fmtBytes(s.speed)}/s` : '—'
+  const v = speedMap.get(t.id)
+  if (!v || v.samples.length === 0) return '—'
+  const avg = v.samples.reduce((a, b) => a + b, 0) / v.samples.length
+  return avg > 0 ? `${fmtBytes(avg)}/s` : '—'
 }
 
 // --- 过滤：底层是 6 状态集合，默认全选 = 显示全部 ---
@@ -382,21 +386,35 @@ function fileLabel(f) {
 
 .spacer { flex: 1; }
 
-/* --- 任务卡片：4 段式单行（勾选 | 名+状态 | 进度条 | 速率 | 按钮）--- */
-.task-card { margin-bottom: 6px; padding: 8px 10px !important; }
-.trow { display: flex; align-items: center; gap: 10px; }
-.pick { flex: none; }
+/* --- 任务卡片：4 段式单行（勾选 | 名+状态 ‖ 进度条 ‖ 速率 ‖ 按钮）---
+   段间用虚拟分割线（细竖线+留白），仿 Firefox 定制工具栏。 */
+.task-card { margin-bottom: 6px; padding: 8px 12px !important; }
+.trow { display: flex; align-items: center; gap: 0; }
+/* 多选框：垂直居中，独立段不加分隔线 */
+.pick { flex: none; align-self: center; margin-right: 12px; }
+/* 段分隔：除多选框外，每段左侧加细竖线 + 留白 */
+.trow > .tname-wrap, .trow > .tprog-wrap, .trow > .tSpeed, .trow > .tactions {
+  padding-left: 14px;
+  position: relative;
+}
+.trow > .tname-wrap::before, .trow > .tprog-wrap::before, .trow > .tSpeed::before, .trow > .tactions::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 20%; bottom: 20%;
+  width: 1px;
+  background: var(--border);
+}
 /* 第1段：任务名+状态标签 */
 .tname-wrap { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; }
-.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
-/* 第2段：进度条占中间主空间 */
-.tprog-wrap { flex: 1; min-width: 80px; }
-/* 第3段：速率/字节数 */
-.tSpeed { flex: none; font-size: 11.5px; color: var(--text-2); min-width: 80px; text-align: right; white-space: nowrap; }
+.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+/* 第2段：进度条占中间，但限制最大宽度避免过长 */
+.tprog-wrap { flex: 1; min-width: 60px; max-width: 320px; }
+/* 第3段：速率/字节数，等宽避免跳动 */
+.tSpeed { flex: none; font-size: 11.5px; color: var(--text-2); min-width: 76px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* meta/错误/详情在主行下方，不影响按钮位置 */
-.tmeta { font-size: 11px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 5px; }
-.terror { margin-top: 4px; color: var(--red); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
+/* meta/错误/详情在主行下方，左对齐到任务名（避开多选框宽度+留白）*/
+.tmeta { font-size: 11px; margin-top: 4px; margin-left: 40px; display: flex; flex-wrap: wrap; gap: 5px; }
+.terror { margin-top: 4px; margin-left: 40px; color: var(--red); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
 
 .files { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
 .file-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
