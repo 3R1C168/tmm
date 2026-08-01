@@ -34,6 +34,7 @@ export const api = {
   pauseTask: (id) => req('POST', `/api/tasks/${id}/pause`),
   resumeTask: (id) => req('POST', `/api/tasks/${id}/resume`),
   deleteTask: (id) => req('DELETE', `/api/tasks/${id}`),
+  batchTasks: (ids, action) => req('POST', '/api/tasks/batch', { ids, action }),
 
   // accounts
   listAccounts: () => req('GET', '/api/accounts'),
