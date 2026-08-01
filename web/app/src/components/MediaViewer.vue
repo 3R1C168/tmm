@@ -55,15 +55,15 @@
               <button class="mv-dl" @click="download"><Download :size="16" /> 下载后本地播放</button>
             </div>
           </div>
-        </div>
 
-        <!-- 图片控制条：仅缩放操作，下载/影院已在顶部统一操作 -->
-        <div v-if="!isVideo" class="mv-controls">
-          <button class="mv-cbtn" @click="zoomStep(-0.2)" title="缩小"><ZoomOut :size="18" /></button>
-          <span class="mv-zoom">{{ Math.round(zoom * 100) }}%</span>
-          <button class="mv-cbtn" @click="zoomStep(0.2)" title="放大"><ZoomIn :size="18" /></button>
-          <button class="mv-cbtn" @click="zoom = 1" title="重置"><RotateCcw :size="16" /></button>
-          <div class="mv-flex" />
+          <!-- 图片控制条：浮在图片底部，hover 显隐 -->
+          <div v-if="!isVideo" class="mv-controls">
+            <button class="mv-cbtn" @click="zoomStep(-0.2)" title="缩小"><ZoomOut :size="18" /></button>
+            <span class="mv-zoom">{{ Math.round(zoom * 100) }}%</span>
+            <button class="mv-cbtn" @click="zoomStep(0.2)" title="放大"><ZoomIn :size="18" /></button>
+            <button class="mv-cbtn" @click="zoom = 1" title="重置"><RotateCcw :size="16" /></button>
+            <div class="mv-flex" />
+          </div>
         </div>
 
         <!-- 上一个/下一个导航：贴卡片外侧（mv-card overflow:visible 可显示） -->
