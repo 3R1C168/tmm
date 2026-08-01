@@ -145,6 +145,41 @@ func (m *taskManager) delete(id string) error {
 	return m.srv.store.delete(id)
 }
 
+// BatchResult reports the outcome of one id in a batch operation.
+type BatchResult struct {
+	ID    string `json:"id"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// Batch applies the same action (pause/resume/delete) to many task ids,
+// returning a per-id result. It is NOT transactional: a failure on one id
+// does not roll back the others.
+func (m *taskManager) Batch(ctx context.Context, ids []string, action string) []BatchResult {
+	results := make([]BatchResult, 0, len(ids))
+	for _, id := range ids {
+		var err error
+		switch action {
+		case "pause":
+			err = m.pause(id)
+		case "resume":
+			err = m.resume(ctx, id)
+		case "delete":
+			err = m.delete(id)
+		default:
+			err = errors.Errorf("unknown action: %s", action)
+		}
+		r := BatchResult{ID: id}
+		if err != nil {
+			r.Error = err.Error()
+		} else {
+			r.OK = true
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
 // resume re-enqueues a paused/failed/interrupted task. Partial downloads are
 // continued from .tdlstate files and the KV resume record.
 func (m *taskManager) resume(ctx context.Context, id string) error {	task, ok := m.srv.store.get(id)
