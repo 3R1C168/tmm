@@ -11,7 +11,6 @@ import (
 
 	"github.com/iyear/tdl/app/dl"
 	"github.com/iyear/tdl/core/downloader"
-	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/runopts"
 	"github.com/iyear/tdl/core/util/tutil"
 	"github.com/iyear/tdl/pkg/tmessage"
@@ -94,7 +93,9 @@ func (p *progressAdapter) OnAdd(elem downloader.Elem) {
 	fileCount := len(p.task.Files)
 	p.task.mu.Unlock()
 
-	logctx.From(context.Background()).Info("task file "+action,
+	// 用 srv.log() 而非 logctx.From(context.Background())：后者拿到的是 Nop logger
+	// （context.Background() 没 attach logger），日志写不出来。
+	p.srv.log().Info("task file "+action,
 		zap.String("task", p.task.ID),
 		zap.String("file", key),
 		zap.Int("msgId", e.MsgID()),
@@ -164,7 +165,7 @@ func (p *progressAdapter) OnDone(elem downloader.Elem, derr error) {
 	p.task.mu.Unlock()
 
 	if ferr != nil && !errors.Is(ferr, context.Canceled) {
-		logctx.From(context.Background()).Warn("file finalize failed",
+		p.srv.log().Warn("file finalize failed",
 			zap.String("task", p.task.ID), zap.String("file", key), zap.Error(ferr))
 	}
 
