@@ -159,6 +159,9 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 			// 有 meta 缓存但缩略图是冷的。不预热会导致 LazyThumb 逐个冷下载，体
 			// 现为"流量跑不起来、缩略图加载慢"。warmupThumbs 内部跳过已缓存的。
 			s.warmupChatThumbs(a, chatID, cached.Messages)
+			s.log().Info("messages served (cache hit)",
+				zap.String("chat", chatID), zap.Int("count", len(cached.Messages)),
+				zap.Bool("mediaOnly", mediaOnly))
 			writeJSON(w, http.StatusOK, map[string]any{
 				"messages":   cached.Messages,
 				"nextCursor": cached.NextCursor,
@@ -181,7 +184,7 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.log().Debug("messages fetched",
+	s.log().Info("messages fetched",
 		zap.String("chat", chatID), zap.Int("offset", offsetID), zap.Int("limit", limit),
 		zap.Bool("mediaOnly", mediaOnly), zap.Int("count", len(msgs)),
 		zap.Duration("cost", time.Since(start)))

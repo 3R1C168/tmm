@@ -623,12 +623,20 @@ function albumCellStyle(album, ci) {
 // media natural dimensions (plain Map, NOT reactive — no re-render on decode).
 // key 带 chatId：消息 ID 是 per-chat 的，裸 ID 跨频道会串用旧频道的自然尺寸
 // （和 DynamicScroller key 串台是同一类问题，见 displayItems 的 chatKey 前缀）。
+// 跨频道累积复用（切回某频道无需 re-decode 已见过的图片），但设上限防止长时间
+// 浏览无限增长：超过 MEDIA_DIMS_MAX 时丢弃最早插入的项（Map 保持插入顺序）。
 const mediaDims = new Map()
+const MEDIA_DIMS_MAX = 2000
 function mediaDimKey(m) { return (current.value?.id ?? '0') + ':' + m.id }
 
 function onThumbLoad(m, e) {
   const img = e.target
   if (img && img.naturalWidth && !mediaDims.has(mediaDimKey(m))) {
+    if (mediaDims.size >= MEDIA_DIMS_MAX) {
+      // 删最早插入的项（FIFO 淘汰，近似 LRU —— 简单且足够：浏览顺序通常是
+      // 时间流式推进，旧消息很少再被看到）。
+      mediaDims.delete(mediaDims.keys().next().value)
+    }
     mediaDims.set(mediaDimKey(m), { w: img.naturalWidth, h: img.naturalHeight })
   }
 }
@@ -916,14 +924,24 @@ function fmtDate(ts) {
   min-width: 200px;
   max-width: 464px; /* tt: 29rem */
   width: max-content; /* 内容定宽 */
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.3125; /* tt 行高 */
+  text-rendering: geometricPrecision; /* 虚拟滚动合成层内文字用几何精度，避免小字号发糊 */
+  -webkit-font-smoothing: antialiased;
 }
 .bubble.media { padding: 4px; overflow: hidden; max-width: 472px; box-sizing: border-box; }
-.bubble.media .text, .bubble.media .meta { padding: 4px 8px 6px; }
+/* 媒体气泡内：
+   .text（正文）左右 8px 文字留白，顶部 8px 与上方媒体拉开呼吸（否则文字紧贴媒体底部）；
+   .meta（时间+下载按钮行）右侧贴齐媒体（0），让下载按钮右边缘 = 媒体右边缘 = bubble 的 4px，
+   左侧 8px 与 .text 文字对齐。上下 0（顶部由 margin-top 隔开，底部贴 bubble 4px）。*/
+.bubble.media .text { padding: 0 8px; margin-top: 8px; }
+.bubble.media .meta { padding: 0 0 0 8px; }
 /* 相册气泡同样定宽到拼图宽度，文字在媒体宽度内换行，右侧不留白 */
 .bubble.album { padding: 4px; max-width: 472px; overflow: hidden; box-sizing: border-box; }
-.bubble.album .text, .bubble.album .meta { padding: 4px 8px 6px; }
+.bubble.album .text { padding: 0 8px; margin-top: 8px; }
+.bubble.album .meta { padding: 0 0 0 8px; }
+/* 媒体气泡的 meta 顶部留 5px 呼吸（替代被去掉的 padding-top），与上方媒体/文字隔开 */
+.bubble.media .meta, .bubble.album .meta { margin-top: 5px; }
 .msg.out .bubble { background: var(--accent-soft); }
 
 /* 文字：不折叠，完整显示（对齐 Telegram 桌面端行为） */

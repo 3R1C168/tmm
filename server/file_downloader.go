@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-faster/errors"
@@ -29,6 +30,12 @@ type streamSession struct {
 	prefCancel context.CancelFunc
 	prefActive bool
 	closed     bool
+
+	// fgActive counts foreground ServeRange calls currently in the download path
+	// (downloadAndServe, which issues RPCs). prefetch reads it to shrink its own
+	// worker count when the foreground needs connections, so a seek no longer
+	// starves the playhead request. See prefetchFloor / downloadSync.
+	fgActive atomic.Int32
 }
 
 // newStreamSession opens the preview file and loads/creates resume state.
@@ -50,9 +57,9 @@ func newStreamSession(a *account, t *mediaTarget, dataPath string, useTakeout bo
 
 func (ss *streamSession) api(ctx context.Context) *tg.Client {
 	if ss.useTakeout {
-		return ss.a.pool.Takeout(ctx, ss.t.dc)
+		return ss.a.poolClient().Takeout(ctx, ss.t.dc)
 	}
-	return ss.a.pool.Client(ctx, ss.t.dc)
+	return ss.a.poolClient().Client(ctx, ss.t.dc)
 }
 
 // --- serving ---
@@ -160,38 +167,75 @@ func (ss *streamSession) downloadAndServe(ctx context.Context, w http.ResponseWr
 	if len(missing) == 0 {
 		return nil
 	}
+	// 标记前台下载活跃：prefetch 据此把并发降到 prefetchFloor，把连接让给播放请求。
+	// 计数点选这里（发 RPC 的路径），而非 ServeRange 入口——disk-serve 分支不抢连接，
+	// 不该被误判为前台忙而无谓压缩 prefetch。
+	ss.fgActive.Add(1)
+	defer ss.fgActive.Add(-1)
 	var mu sync.Mutex
-	onReady := func(p piece) {
-		// Only a chunk contiguous with the current writeOff is servable now.
-		mu.Lock()
-		defer mu.Unlock()
-		if p.off != *writeOff {
-			return
+	// ready tracks pieces that have landed on disk but may not yet have been
+	// flushed (their onReady fired before writeOff reached them). onReady
+	// advances writeOff as far as the contiguous ready prefix allows, so a slow
+	// first chunk no longer blocks already-downloaded later chunks from being
+	// served. Fixes the "data downloaded but firstByte=0 / not flushed" case.
+	ready := make(map[int64]piece, len(missing))
+	writePiece := func(p piece) {
+		// Caller holds mu. Serve [writeOff, p.end) from disk.
+		sStart := *writeOff
+		if sStart < p.off {
+			sStart = p.off
 		}
 		sEnd := p.end - 1
 		if sEnd > end {
 			sEnd = end
 		}
-		buf := make([]byte, sEnd-*writeOff+1)
-		n, rerr := ss.f.ReadAt(buf, *writeOff)
-		if rerr != nil && rerr != io.EOF {
-			return // leave it; a later request will surface the error
+		if sStart > sEnd {
+			return
 		}
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return // client gone; nothing more to serve
+		buf := make([]byte, sEnd-sStart+1)
+		n, rerr := ss.f.ReadAt(buf, sStart)
+		if rerr != nil && rerr != io.EOF {
+			return
+		}
+		if n <= 0 {
+			return
+		}
+		if _, werr := w.Write(buf[:n]); werr != nil {
+			return
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		if *firstByte == 0 {
+			*firstByte = time.Since(begin)
+		}
+		*fetched += int64(n)
+		*writeOff = sStart + int64(n)
+	}
+	onReady := func(p piece) {
+		mu.Lock()
+		defer mu.Unlock()
+		// Record this piece as landed, then flush the longest contiguous run
+		// starting at writeOff — not just this one piece. This is what the old
+		// code missed: when chunk N finishes slowly, chunks N+1/N+2 that
+		// finished earlier were skipped (their onReady saw p.off != writeOff)
+		// and only got served after the whole batch returned (tail-serve),
+		// stalling the browser even though the bytes were on disk.
+		ready[p.off] = p
+		for {
+			next, ok := ready[*writeOff]
+			if !ok {
+				break
 			}
-			if flusher != nil {
-				flusher.Flush()
+			prevOff := *writeOff
+			writePiece(next)
+			delete(ready, next.off)
+			if *writeOff <= prevOff {
+				break // no progress (read failed / client gone); stop
 			}
-			if *firstByte == 0 {
-				*firstByte = time.Since(begin)
-			}
-			*fetched += int64(n)
-			*writeOff += int64(n)
 		}
 	}
-	if err := ss.downloadSync(ctx, missing, onReady); err != nil {
+	if err := ss.downloadSync(ctx, missing, onReady, downloadWorkers); err != nil {
 		// 部分 chunk 下载失败：不中断整个响应——已下载/已写的字节照常返回
 		// （浏览器拿到后会继续请求下一个块），失败只记日志。若完全没写出
 		// 任何字节，返回错误让上层处理。
@@ -269,11 +313,22 @@ func (ss *streamSession) WaitForRange(ctx context.Context, start, end int64) err
 // the playhead during steady streaming.
 const downloadWorkers = 32
 
-// downloadSync downloads multiple chunks in parallel (for prefetch).
+// prefetchFloor is the minimum number of workers prefetch keeps even when the
+// foreground (ServeRange download path) is active. When fgActive > 0, prefetch
+// shrinks from downloadWorkers (32) to this floor so the playhead request gets
+// the bulk of the shared 32-connection pool instead of being starved by
+// prefetch. 4 keeps a trickle of buffering during sustained seeking without
+// choking the foreground; 0 would let prefetch fully stall on rapid dragging.
+const prefetchFloor = 4
+
+// downloadSync downloads multiple chunks in parallel. workers caps the
+// parallelism (foreground passes downloadWorkers=32; prefetch passes a dynamic
+// count that shrinks to prefetchFloor while the foreground is active, so the
+// two don't starve each other on the shared account pool).
 // If onReady is non-nil it is called with each chunk right after that chunk
 // lands on disk (out of order). Callers use it to serve bytes progressively
 // (seek prefetch) instead of waiting for the whole batch.
-func (ss *streamSession) downloadSync(ctx context.Context, chunks []piece, onReady func(piece)) error {
+func (ss *streamSession) downloadSync(ctx context.Context, chunks []piece, onReady func(piece), workers int) error {
 	if len(chunks) == 0 {
 		return nil
 	}
@@ -283,7 +338,7 @@ func (ss *streamSession) downloadSync(ctx context.Context, chunks []piece, onRea
 	queue := make(chan piece)
 	errCh := make(chan error, 1)
 
-	nw := downloadWorkers
+	nw := workers
 	if len(chunks) < nw {
 		nw = len(chunks)
 	}
@@ -355,6 +410,11 @@ func (ss *streamSession) fetchOne(ctx context.Context, p piece) error {
 		return errors.Errorf("unexpected response %T", res)
 	}
 	if len(file.Bytes) == 0 {
+		// 空响应：Telegram 偶尔对未就绪的分片返回 0 字节（DC 抖动/限流）。
+		// 返回 nil（而非 error）以免 downloadSync 的"首个 err 即 cancel 整批"
+		// 机制把其他正在成功的 chunk 一起杀掉。onReady 的连续推进会 flush 已
+		// 成功的 chunk；整批全空时 downloadAndServe 的 written==0 兜底返回 err，
+		// 浏览器自动重发。
 		return nil
 	}
 
@@ -431,8 +491,14 @@ func (ss *streamSession) kickPrefetch() {
 			// 每个 prefetch batch 限 60s：单个 chunk RPC 卡住不会永久占 worker，
 			// 超时后整批放弃，下轮 polling 重新评估（借鉴 tt 的 PART_TIMEOUT 兜底，
 			// 避免 prefetch goroutine 被慢 RPC 钉死、playhead 追上后无法重锚）。
+			// 动态并发：前台 ServeRange 正在下载（fgActive>0）时收缩到 prefetchFloor，
+			// 把连接让给播放请求，避免 seek 时前台被预读饿死；前台空闲则满速预读。
+			w := downloadWorkers
+			if ss.fgActive.Load() > 0 {
+				w = prefetchFloor
+			}
 			batchCtx, batchCancel := context.WithTimeout(ctx, 60*time.Second)
-			_ = ss.downloadSync(batchCtx, todo, nil)
+			_ = ss.downloadSync(batchCtx, todo, nil, w)
 			batchCancel()
 			if ctx.Err() != nil {
 				return

@@ -93,10 +93,14 @@ function switchAccount(ns) {
 
 const isActive = (p) => route.path.startsWith(p)
 
-onMounted(async () => {
+onMounted(() => {
   store.applyTheme()
   store.startEvents()
-  await Promise.all([store.refreshAccounts(), store.refreshConfig(), store.refreshTasks()])
+  // config/tasks 立即拉取；accounts 后台轮询——服务启动时 auth 探测要几秒，
+  // 不阻塞页面渲染，账号就绪后自动出现（ensureAccounts 内部重试）。
+  store.refreshConfig()
+  store.refreshTasks()
+  store.ensureAccounts()
 })
 </script>
 

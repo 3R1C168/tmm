@@ -33,6 +33,12 @@ type account struct {
 
 	cancel context.CancelFunc
 	done   chan struct{}
+	// readyCh is closed once run() has confirmed the account is authorized and
+	// pool/peers are built. init() waits on it (with a timeout) so the HTTP
+	// service doesn't start serving until accounts are usable — otherwise the
+	// frontend's first refreshAccounts() sees an empty list (auth probe still
+	// in flight) and shows "未登录" until a manual refresh.
+	readyCh chan struct{}
 
 	mu         sync.RWMutex
 	authorized bool
@@ -62,6 +68,10 @@ func newAccountManager(stg kv.Storage, proxy, ntp string) *accountManager {
 
 // init scans existing namespaces and starts clients for authorized ones.
 // Namespaces that fail the auth check are left for the login flow.
+//
+// It does NOT wait for the auth probe to finish — the HTTP server starts
+// immediately so the page loads fast, and the frontend polls refreshAccounts
+// until the account appears (auth probe resolves a few seconds later).
 func (m *accountManager) init(ctx context.Context) {
 	nss, err := m.stg.Namespaces()
 	if err != nil {
@@ -105,6 +115,7 @@ func (m *accountManager) ensure(ctx context.Context, ns string) (*account, error
 		kvd:    kvd,
 		client: client,
 		done:   make(chan struct{}),
+		readyCh: make(chan struct{}),
 	}
 	m.accounts[ns] = a
 
@@ -126,6 +137,9 @@ func (a *account) run(ctx context.Context) {
 			return errors.Wrap(err, "auth status")
 		}
 		if !status.Authorized {
+			// 未授权：close ready 让 init 不卡住（list 会正确显示"未登录"），
+			// 保持连接以便登录流程完成。
+			close(a.readyCh)
 			logctx.From(ctx).Info("account not authorized, waiting for login")
 			// keep the connection alive so a login flow can complete; block
 			// until cancelled
@@ -136,6 +150,8 @@ func (a *account) run(ctx context.Context) {
 		a.mu.Lock()
 		a.authorized = true
 		a.mu.Unlock()
+		// 授权确认：close readyCh，init 据此知道账号可用，HTTP 可开始服务。
+		close(a.readyCh)
 
 		if u, err := a.client.Self(ctx); err == nil {
 			a.mu.Lock()
@@ -148,8 +164,17 @@ func (a *account) run(ctx context.Context) {
 		// streaming starves. Telegram tolerates many connections per account
 		// (the desktop client opens dozens); 32 lets streaming reach several
 		// MB/s like the official client.
-		a.pool = dcpool.NewPool(a.client, 32, tclient.NewDefaultMiddlewares(ctx, 0)...)
-		a.peers = peers.Options{Storage: storage.NewPeers(a.kvd)}.Build(a.pool.Default(ctx))
+		//
+		// pool/peers 在 a.mu 下赋值：media.go/file_downloader.go 等读取方走
+		// poolClient()/peersManager() accessor（同样持锁），避免无锁写+无锁读
+		// 的 data race（pool 字段虽单调 nil→非nil 不会 nil deref，但无
+		// happens-before 仍违反 Go memory model，-race 会报）。
+		pool := dcpool.NewPool(a.client, 32, tclient.NewDefaultMiddlewares(ctx, 0)...)
+		pm := peers.Options{Storage: storage.NewPeers(a.kvd)}.Build(pool.Default(ctx))
+		a.mu.Lock()
+		a.pool = pool
+		a.peers = pm
+		a.mu.Unlock()
 
 		logctx.From(ctx).Info("account ready", zap.String("ns", a.ns))
 
@@ -162,7 +187,7 @@ func (a *account) run(ctx context.Context) {
 			dialCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
 			for dc := 1; dc <= 5; dc++ {
-				_ = a.pool.Client(dialCtx, dc) // triggers lazy dial + caches invoker
+				_ = pool.Client(dialCtx, dc) // triggers lazy dial + caches invoker
 			}
 			logctx.From(dialCtx).Debug("pre-dialed media DCs", zap.String("ns", a.ns))
 		}()
@@ -184,6 +209,24 @@ func (a *account) ready() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.authorized && a.pool != nil
+}
+
+// poolClient returns the dcpool under the account lock. Callers (media.go,
+// file_downloader.go) must use this instead of reading a.pool directly: pool
+// is written under the same lock in run(), so a locked read establishes the
+// happens-before the memory model requires (no data race).
+func (a *account) poolClient() dcpool.Pool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.pool
+}
+
+// peersManager returns the peers manager under the account lock, same
+// rationale as poolClient.
+func (a *account) peersManager() *peers.Manager {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.peers
 }
 
 // info returns a summary for the API.

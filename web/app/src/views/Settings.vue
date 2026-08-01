@@ -18,9 +18,9 @@
             </el-tag>
           </div>
           <div class="ameta muted">
-            <span v-if="a.username">@{{ a.username }} · </span>
-            <span v-if="a.userId">ID {{ a.userId }} · </span>
-            <span class="mono">ns: {{ a.ns }}</span>
+            <span v-if="a.username">@{{ a.username }}</span>
+            <span v-if="a.username && a.userId"> · </span>
+            <span v-if="a.userId">ID {{ a.userId }}</span>
           </div>
         </div>
         <el-button v-if="!a.authorized" size="small" type="primary" @click="$router.push('/login')">登录</el-button>
@@ -46,6 +46,13 @@
         </div>
         <el-input-number v-model="settings.cacheMaxMB" :min="64" :max="102400" :step="128" @change="saveSettings" />
       </div>
+      <div class="setrow">
+        <div class="setinfo">
+          <div class="setname">退出时清理预览缓存</div>
+          <div class="setdesc muted">关闭服务时自动清除视频流式播放产生的预览分片（cache/preview）。已下载的媒体/缩略图不受影响，下次播放视频会重新缓冲。建议开启以避免预览文件无限增长。</div>
+        </div>
+        <el-switch v-model="settings.clearPreviewOnExit" @change="saveSettings" />
+      </div>
     </div>
 
     <div class="card">
@@ -70,7 +77,7 @@ import { Plus } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
-const settings = ref({ previewTakeout: false, cacheMaxMB: 5120 })
+const settings = ref({ previewTakeout: false, cacheMaxMB: 5120, clearPreviewOnExit: true })
 
 onMounted(async () => {
   try {
@@ -78,6 +85,7 @@ onMounted(async () => {
     settings.value = {
       previewTakeout: !!s.previewTakeout,
       cacheMaxMB: s.cacheMaxMB || 5120,
+      clearPreviewOnExit: s.clearPreviewOnExit !== false, // 默认 true，仅显式 false 才关
     }
   } catch { /* use defaults */ }
 })
@@ -87,6 +95,7 @@ async function saveSettings() {
     await api.updateSettings({
       previewTakeout: settings.value.previewTakeout,
       cacheMaxMB: settings.value.cacheMaxMB,
+      clearPreviewOnExit: settings.value.clearPreviewOnExit,
     })
     ElMessage.success('设置已保存')
   } catch (e) { ElMessage.error(e.message) }

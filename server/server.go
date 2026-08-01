@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	_ "net/http/pprof" // register pprof handlers on DefaultServeMux for /debug/pprof/
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,10 +199,36 @@ func (s *Server) gracefulStop() error {
 	s.qr.closeAll()
 	s.code.closeAll()
 	s.accounts.close()
+	// Close every stream session so their preview file handles are released
+	// before we (optionally) wipe the preview dir below.
+	s.closeAllStreamers()
 	if s.http != nil {
 		_ = s.http.Shutdown(ctx)
 	}
+	// Optional: clear the streaming preview cache on exit. Preview chunks are
+	// by-products of video playback and go stale; clearing keeps cache/ from
+	// growing unbounded. Media/thumb caches are kept. Use s.log() (not
+	// logctx.From(ctx)) because ctx is Background-derived and carries no logger.
+	if s.settings.clearPreviewOnExit() {
+		n, err := s.cache.clearPreview()
+		if err != nil {
+			s.log().Warn("clear preview cache on exit", zap.Error(err))
+		} else {
+			s.log().Info("cleared preview cache on exit", zap.Int("files", n))
+		}
+	}
 	return s.stg.Close()
+}
+
+// closeAllStreamers closes every active stream session. Called at shutdown so
+// preview file handles are released before the preview cache may be wiped.
+func (s *Server) closeAllStreamers() {
+	s.streamerMu.Lock()
+	defer s.streamerMu.Unlock()
+	for _, e := range s.streamers {
+		_ = e.ss.Close()
+	}
+	s.streamers = nil
 }
 
 // Shutdown requests a graceful stop (idempotent via sync.Once). Used by /api/shutdown.
@@ -264,6 +291,11 @@ func (s *Server) router() *mux.Router {
 	api.HandleFunc("/config", s.handleConfig).Methods(http.MethodGet)
 	api.HandleFunc("/settings", s.handleGetSettings).Methods(http.MethodGet)
 	api.HandleFunc("/settings", s.handleUpdateSettings).Methods(http.MethodPost)
+
+	// pprof: goroutine/heap/block profiling for performance diagnosis.
+	// Mounted under /debug/pprof/ before the SPA fallback so it isn't shadowed
+	// by index.html. net/http/pprof registers its handlers on http.DefaultServeMux.
+	r.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
 	// static frontend + SPA fallback
 	r.PathPrefix("/").Handler(s.spaHandler())

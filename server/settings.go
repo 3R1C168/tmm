@@ -22,6 +22,12 @@ type settings struct {
 	TakeoutMinMB int `json:"takeoutMinMB"`
 	// CacheMaxMB caps the on-disk media/thumb cache (LRU-evicted when exceeded).
 	CacheMaxMB int `json:"cacheMaxMB"`
+	// ClearPreviewOnExit wipes the streaming preview cache (cache/preview, the
+	// partial chunk files produced by on-demand video streaming) when the
+	// service shuts down. Media/thumb caches are kept so re-opened files need
+	// not re-download. Preview files are cheap to discard: they only save the
+	// seek-ahead buffering of a video you were watching, which is stale next run.
+	ClearPreviewOnExit bool `json:"clearPreviewOnExit"`
 
 	path string
 }
@@ -34,7 +40,10 @@ func defaultSettings(path string) *settings {
 		PreviewTakeout: false,
 		TakeoutMinMB:   50,
 		CacheMaxMB:     5120, // 5 GiB default cache
-		path:           path,
+		// default on: preview chunks are streaming by-products that go stale on
+		// exit; clearing them keeps the cache folder from growing unbounded.
+		ClearPreviewOnExit: true,
+		path:               path,
 	}
 }
 
@@ -46,9 +55,10 @@ func (st *settings) load() error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	var a struct {
-		PreviewTakeout bool `json:"previewTakeout"`
-		TakeoutMinMB   int  `json:"takeoutMinMB"`
-		CacheMaxMB     int  `json:"cacheMaxMB"`
+		PreviewTakeout     bool  `json:"previewTakeout"`
+		TakeoutMinMB       int   `json:"takeoutMinMB"`
+		CacheMaxMB         int   `json:"cacheMaxMB"`
+		ClearPreviewOnExit *bool `json:"clearPreviewOnExit"`
 	}
 	if err := json.Unmarshal(b, &a); err != nil {
 		return errors.Wrap(err, "parse settings")
@@ -56,6 +66,9 @@ func (st *settings) load() error {
 	st.PreviewTakeout = a.PreviewTakeout
 	st.TakeoutMinMB = a.TakeoutMinMB
 	st.CacheMaxMB = a.CacheMaxMB
+	if a.ClearPreviewOnExit != nil {
+		st.ClearPreviewOnExit = *a.ClearPreviewOnExit
+	}
 	if st.TakeoutMinMB <= 0 {
 		st.TakeoutMinMB = 50
 	}
@@ -68,9 +81,10 @@ func (st *settings) load() error {
 func (st *settings) save() error {
 	st.mu.RLock()
 	payload := map[string]any{
-		"previewTakeout": st.PreviewTakeout,
-		"takeoutMinMB":   st.TakeoutMinMB,
-		"cacheMaxMB":     st.CacheMaxMB,
+		"previewTakeout":     st.PreviewTakeout,
+		"takeoutMinMB":       st.TakeoutMinMB,
+		"cacheMaxMB":         st.CacheMaxMB,
+		"clearPreviewOnExit": st.ClearPreviewOnExit,
 	}
 	st.mu.RUnlock()
 	b, err := json.MarshalIndent(payload, "", "  ")
@@ -102,19 +116,28 @@ func (st *settings) cacheMaxBytes() int64 {
 	return int64(st.CacheMaxMB) * 1024 * 1024
 }
 
+// clearPreviewOnExit reports whether the preview cache should be wiped on
+// shutdown.
+func (st *settings) clearPreviewOnExit() bool {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.ClearPreviewOnExit
+}
+
 // snapshot returns the settings as a JSON-friendly map.
 func (st *settings) snapshot() map[string]any {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 	return map[string]any{
-		"previewTakeout": st.PreviewTakeout,
-		"takeoutMinMB":   st.TakeoutMinMB,
-		"cacheMaxMB":     st.CacheMaxMB,
+		"previewTakeout":     st.PreviewTakeout,
+		"takeoutMinMB":       st.TakeoutMinMB,
+		"cacheMaxMB":         st.CacheMaxMB,
+		"clearPreviewOnExit": st.ClearPreviewOnExit,
 	}
 }
 
 // update applies a partial update and persists.
-func (st *settings) update(previewTakeout *bool, takeoutMinMB *int, cacheMaxMB *int) error {
+func (st *settings) update(previewTakeout *bool, takeoutMinMB *int, cacheMaxMB *int, clearPreviewOnExit *bool) error {
 	st.mu.Lock()
 	if previewTakeout != nil {
 		st.PreviewTakeout = *previewTakeout
@@ -124,6 +147,9 @@ func (st *settings) update(previewTakeout *bool, takeoutMinMB *int, cacheMaxMB *
 	}
 	if cacheMaxMB != nil && *cacheMaxMB > 0 {
 		st.CacheMaxMB = *cacheMaxMB
+	}
+	if clearPreviewOnExit != nil {
+		st.ClearPreviewOnExit = *clearPreviewOnExit
 	}
 	st.mu.Unlock()
 	return st.save()

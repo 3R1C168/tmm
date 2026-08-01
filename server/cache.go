@@ -44,6 +44,30 @@ func (c *cache) ensure() error {
 	return nil
 }
 
+// clearPreview removes every file under the preview directory (the partial
+// streaming chunks produced by on-demand video playback). Media/thumb caches
+// are left untouched so already-downloaded files do not need re-fetching. The
+// directory itself is recreated so the next stream session can write to it.
+// Returns the number of files removed. Used by the "clear preview on exit"
+// setting at shutdown.
+func (c *cache) clearPreview() (int, error) {
+	dir := c.previewDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil // nothing to clear
+		}
+		return 0, errors.Wrap(err, "read preview dir")
+	}
+	n := 0
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // --- meta (JSON with timestamp) ---
 
 type metaFile struct {

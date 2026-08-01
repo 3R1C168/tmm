@@ -54,6 +54,18 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
+
+/* 虚拟滚动项字体清晰化：vue-virtual-scroller 用 transform 定位每个 item，
+   每项成为独立 GPU 合成层；其内置 CSS 还加了 will-change:transform 提前提示，
+   在小字号（13.5px）下 GPU 光栅化会让文字发糊。去掉 will-change（transform
+   本身仍驱动定位，不影响滚动），并强制合成层用几何精度渲染文字。
+   选择器带上 .ready + !important 以压过库内置规则（库规则也是 .ready 三类选择器，
+   同优先级且加载更晚，必须 !important 才能稳定覆盖）。 */
+.vue-recycle-scroller.ready .vue-recycle-scroller__item-view {
+  will-change: auto !important;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+}
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }

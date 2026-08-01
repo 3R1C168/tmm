@@ -156,9 +156,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateSettingsRequest struct {
-	PreviewTakeout *bool `json:"previewTakeout"`
-	TakeoutMinMB   *int  `json:"takeoutMinMB"`
-	CacheMaxMB     *int  `json:"cacheMaxMB"`
+	PreviewTakeout     *bool `json:"previewTakeout"`
+	TakeoutMinMB       *int  `json:"takeoutMinMB"`
+	CacheMaxMB         *int  `json:"cacheMaxMB"`
+	ClearPreviewOnExit *bool `json:"clearPreviewOnExit"`
 }
 
 // handleUpdateSettings applies a partial settings update.
@@ -168,7 +169,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.settings.update(req.PreviewTakeout, req.TakeoutMinMB, req.CacheMaxMB); err != nil {
+	if err := s.settings.update(req.PreviewTakeout, req.TakeoutMinMB, req.CacheMaxMB, req.ClearPreviewOnExit); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

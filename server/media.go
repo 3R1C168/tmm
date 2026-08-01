@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,11 +60,11 @@ type thumbTarget struct {
 
 // resolveMedia fetches the message and extracts its media location.
 func (s *Server) resolveMedia(ctx context.Context, a *account, chatID string, msgID int) (*mediaTarget, *tg.Message, error) {
-	peer, err := tutil.GetInputPeer(ctx, a.peers, chatID)
+	peer, err := tutil.GetInputPeer(ctx, a.peersManager(), chatID)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "resolve chat")
 	}
-	msg, err := tutil.GetSingleMessage(ctx, a.pool.Default(ctx), peer.InputPeer(), msgID)
+	msg, err := tutil.GetSingleMessage(ctx, a.poolClient().Default(ctx), peer.InputPeer(), msgID)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get message")
 	}
@@ -357,7 +358,16 @@ func (s *Server) fetchThumb(ctx context.Context, a *account, chatID string, msgI
 	dlCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	dst := s.cache.thumbPath(peerID, msgID)
-	return s.downloadToFile(dlCtx, a, th.loc, th.size, th.dc, dst, false)
+	dlStart := time.Now()
+	if err := s.downloadToFile(dlCtx, a, th.loc, th.size, th.dc, dst, false); err != nil {
+		return err
+	}
+	// 冷缩略图下载耗时：频道切换时多条并发，反映媒体加载速度。缓存命中的
+	// 快路径（handleMediaThumb 顶部 thumbExists）不经过这里，不会刷屏。
+	s.log().Info("thumb downloaded",
+		zap.String("chat", chatID), zap.Int("msg", msgID),
+		zap.Int64("bytes", th.size), zap.Duration("cost", time.Since(dlStart)))
+	return nil
 }
 
 // handleMediaFile serves the full-resolution file (images on zoom), cached.
@@ -538,7 +548,9 @@ func (s *Server) handleMediaStream(w http.ResponseWriter, r *http.Request) {
 		zap.String("chat", chatID), zap.Int("msg", msgID),
 		zap.Int64("start", start), zap.Int64("end", end),
 		zap.Int64("fetched", fetched),
-		zap.Duration("firstByte", firstByte), zap.Duration("cost", time.Since(serveStart)))
+		zap.Int64("fileSize", t.size),
+		zap.Duration("firstByte", firstByte), zap.Duration("cost", time.Since(serveStart)),
+		zap.Int("goroutines", runtime.NumGoroutine()))
 	if serveErr != nil && !errors.Is(serveErr, context.Canceled) {
 		s.log().Warn("stream error", zap.Error(serveErr))
 	}
@@ -646,15 +658,16 @@ func (s *Server) downloadToFile(ctx context.Context, a *account, loc tg.InputFil
 		return err
 	}
 	var client *tg.Client
+	pool := a.poolClient()
 	if useTakeout {
-		client = a.pool.Takeout(ctx, dc)
+		client = pool.Takeout(ctx, dc)
 	} else {
 		// Dial the file's own DC. The first dial to a DC pays a one-time
 		// handshake cost (~seconds), but the pool caches the invoker and
 		// subsequent files on the same DC are fast. Using Default (current DC)
 		// would trigger FILE_MIGRATE, which the pool's retry middleware does
 		// NOT auto-follow — so per-DC is both correct and, after warm-up, fast.
-		client = a.pool.Client(ctx, dc)
+		client = pool.Client(ctx, dc)
 	}
 
 	// Fixed chunk size for consistency — adaptive sizes cause state tracking issues

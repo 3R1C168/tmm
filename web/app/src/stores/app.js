@@ -30,6 +30,16 @@ export const useAppStore = defineStore('app', {
         this.accounts = r.accounts || []
       } catch { /* service may be starting */ }
     },
+    // 启动时账号 auth 探测需要几秒，期间 listAccounts 返回空。
+    // ensureAccounts 轮询直到账号出现或超时，让网页秒开后账号自动加载。
+    async ensureAccounts() {
+      const maxTries = 12 // 12 × 1.5s ≈ 18s，覆盖 auth 探测 + MTProto 握手
+      for (let i = 0; i < maxTries; i++) {
+        await this.refreshAccounts()
+        if (this.accounts.length) return // 账号已就绪
+        await new Promise(r => setTimeout(r, 1500))
+      }
+    },
     async refreshConfig() {
       try {
         this.config = await api.config()
