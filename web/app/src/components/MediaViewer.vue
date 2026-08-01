@@ -552,7 +552,8 @@ function fmtBytes(n) {
 .mv-overlay.theater .mv-nav.left { left: 12px; }
 .mv-overlay.theater .mv-nav.right { right: 12px; }
 
-.mv-controls { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: #fff; }
+.mv-controls { position: absolute; bottom: 0; left: 0; right: 0; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 16px 16px 8px; color: #fff; background: linear-gradient(to top, rgba(0,0,0,.7), transparent); opacity: 0; transition: opacity .2s; }
+.mv-stage:hover .mv-controls { opacity: 1; }
 .mv-cbtn {
   width: 34px; height: 34px; flex: none; border: none; border-radius: 50%;
   background: rgba(255,255,255,.1); color: #fff; font-size: 15px; cursor: pointer; transition: .15s;
