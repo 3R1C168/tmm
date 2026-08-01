@@ -194,6 +194,27 @@ func (s *State) Complete() bool {
 	return s.done == numPieces(s.size, s.partSize)
 }
 
+// markMissingFrom 把从 offset（含）开始的 piece 全部标记为未完成，
+// 让后续 Missing() 返回这些 piece 以便重新下载。
+// 用于「磁盘实际字节数 < 声明 size」时强制补齐尾部——弥补 state 与磁盘
+// 不同步、以及 gotd plain 模式提前退出导致的缺块。
+func (s *State) markMissingFrom(offset int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	startPiece := int(offset / int64(s.partSize))
+	total := numPieces(s.size, s.partSize)
+	for p := startPiece; p < total; p++ {
+		w := uint(p) / 64
+		b := uint(p) % 64
+		if s.bits[w]&(1<<b) != 0 {
+			s.bits[w] &^= 1 << b // 清除完成位
+			s.done--
+		}
+		delete(s.partial, p)
+	}
+	s.dirty = true
+}
+
 // pieceRange is a half-open byte range [Off, End) of one piece.
 type pieceRange struct {
 	Off int64

@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"os"
 
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram/downloader"
@@ -93,13 +94,7 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 		if err := d.resume(ctx, client, elem, state, threads); err != nil {
 			return errors.Wrap(err, "resume download")
 		}
-		// 完整性校验：gotd plain 模式可能提前退出（服务器返回短块被当 EOF），
-		// 导致部分 piece 没下。resume 后用 state.Complete() 兜底，缺块则报错，
-		// FinalizeElem 会保留 .tmp/.tdlstate 让下次继续补齐。
-		if !state.Complete() {
-			return errors.Errorf("incomplete after resume: %d/%d pieces", state.done, numPieces(state.size, state.partSize))
-		}
-		return nil
+		return d.ensureComplete(ctx, client, elem, state, threads)
 	}
 
 	_, err := downloader.NewDownloader().WithPartSize(MaxPartSize).
@@ -110,14 +105,50 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 		return errors.Wrap(err, "download")
 	}
 
-	// 全新下载同样校验完整性（state 由 newWriteAt 的 Mark 更新）。
-	// 提前退出会留下未置位的 piece，Complete() 检测出来。
+	// gotd plain 模式可能提前退出（服务器返回短块被当 EOF），导致磁盘字节不足。
+	// ensureComplete 会校验并按需补下缺块。
 	if st := elem.Resume(); st != nil {
-		if !st.Complete() {
-			return errors.Errorf("incomplete: %d/%d pieces", st.done, numPieces(st.size, st.partSize))
+		return d.ensureComplete(ctx, client, elem, st, threads)
+	}
+	return nil
+}
+
+// ensureComplete 校验下载完整性：比对磁盘实际字节数与 elem.File().Size()，
+// 不足则把缺失的尾部 piece 标记为未完成并重新 resume，循环直到完整或达到重试上限。
+// 这道兜底弥补 state.Complete() 与磁盘实际不同步、以及 gotd 提前退出的问题。
+func (d *Downloader) ensureComplete(ctx context.Context, client *tg.Client, elem Elem, state *State, threads int) error {
+	const maxRetries = 3
+	want := elem.File().Size()
+	// elem.To() 实际是 *os.File（iter 创建时传入），取其路径做 size 校验
+	path := ""
+	if f, ok := elem.To().(interface{ Name() string }); ok {
+		path = f.Name()
+	}
+	for i := 0; i < maxRetries && path != ""; i++ {
+		fi, serr := os.Stat(path)
+		if serr != nil {
+			return errors.Wrap(serr, "stat download")
+		}
+		if fi.Size() == want {
+			return nil // 完整
+		}
+		if fi.Size() > want {
+			return errors.Errorf("size overflow: got %d want %d", fi.Size(), want)
+		}
+		// 磁盘不足：把缺失的尾部 piece 强制标记为未完成，触发 resume 重下。
+		state.markMissingFrom(fi.Size())
+		logctx.From(ctx).Warn("incomplete download, retrying tail",
+			zap.Int64("got", fi.Size()), zap.Int64("want", want), zap.Int("retry", i+1))
+		if err := d.resume(ctx, client, elem, state, threads); err != nil {
+			return errors.Wrap(err, "resume missing tail")
 		}
 	}
-
+	// 重试上限仍不完整
+	if path != "" {
+		if fi, _ := os.Stat(path); fi != nil && fi.Size() != want {
+			return errors.Errorf("incomplete after %d retries: got %d want %d", maxRetries, fi.Size(), want)
+		}
+	}
 	return nil
 }
 
