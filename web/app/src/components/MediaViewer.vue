@@ -237,7 +237,8 @@ function setupPlyr() {
   const savedVol = parseFloat(localStorage.getItem('tmm-volume') || '0.5')
   const vol = isNaN(savedVol) ? 0.5 : Math.min(1, Math.max(0, savedVol))
   plyr = new Plyr(el, {
-    controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume'],
+    controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings'],
+    settings: ['speed'],
     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
     i18n: {
       speed: '播放速度',
@@ -310,7 +311,6 @@ function setupPlyr() {
   // 用 DOM 插入一个与 Plyr 原生按钮同风格的按钮，点击触发 theater 模式
   // （网页全屏，非浏览器全屏 API）。
   injectTheaterButton()
-  injectSpeedButton()
 }
 
 function injectTheaterButton() {
@@ -334,62 +334,6 @@ function updateTheaterBtnIcon(btn, isTheater) {
     ? '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>'
     : '<path d="M3 8V5a2 2 0 0 1 2-2h3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3"/>'
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>'
-}
-
-// 齿轮速度按钮：hover 展开竖向面板（顶部速率 + 横向滑块），仿音量 hover。
-// 拖动 snap 到档位；点击齿轮循环切档。
-const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
-const GEAR_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
-function injectSpeedButton() {
-  if (!plyr) return
-  const controls = plyr.elements?.container?.querySelector('.plyr__controls')
-  if (!controls) return
-  if (controls.querySelector('.plyr__speed-wrap')) return
-
-  const min = SPEED_OPTIONS[0], max = SPEED_OPTIONS[SPEED_OPTIONS.length - 1]
-  const speedToValue = (s) => (s - min) / (max - min) * 100
-  const valueToSpeed = (v) => {
-    const exact = min + (v / 100) * (max - min)
-    return SPEED_OPTIONS.reduce((best, opt) => Math.abs(opt - exact) < Math.abs(best - exact) ? opt : best, SPEED_OPTIONS[0])
-  }
-
-  const wrap = document.createElement('div')
-  wrap.className = 'plyr__speed-wrap'
-  wrap.innerHTML = `<button class="plyr__control plyr__speed-btn" type="button" aria-label="播放速度" title="播放速度">${GEAR_SVG}</button>
-    <div class="plyr__speed-popup">
-      <span class="plyr__speed-rate">1.0x</span>
-      <input class="plyr__speed-range" type="range" min="0" max="100" step="1" value="${speedToValue(1)}">
-    </div>`
-  controls.appendChild(wrap)
-
-  const btn = wrap.querySelector('.plyr__speed-btn')
-  const popup = wrap.querySelector('.plyr__speed-popup')
-  const range = wrap.querySelector('input')
-  const rate = wrap.querySelector('.plyr__speed-rate')
-
-  wrap.addEventListener('mouseenter', () => popup.classList.add('show'))
-  wrap.addEventListener('mouseleave', () => popup.classList.remove('show'))
-
-  range.addEventListener('input', (e) => {
-    const s = valueToSpeed(Number(e.target.value))
-    if (plyr) plyr.speed = s
-    rate.textContent = s + 'x'
-  })
-  range.addEventListener('change', (e) => {
-    const s = valueToSpeed(Number(e.target.value))
-    if (plyr) plyr.speed = s
-    rate.textContent = s + 'x'
-    range.value = speedToValue(s)
-  })
-  btn.addEventListener('click', (e) => {
-    e.preventDefault()
-    const cur = plyr?.speed || 1
-    const idx = SPEED_OPTIONS.indexOf(cur)
-    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length]
-    if (plyr) plyr.speed = next
-    rate.textContent = next + 'x'
-    range.value = speedToValue(next)
-  })
 }
 
 // theater 状态变化时同步注入按钮的图标
@@ -651,13 +595,7 @@ function fmtBytes(n) {
 .mv-overlay.theater :deep(.plyr__controls) { border-radius: 0; }
 :deep(.plyr__controls__item) { margin-right: 8px; }
 :deep(.plyr__theater-btn) { margin-left: 0; }
-/* 速度按钮 + 竖向滑块弹窗 */
-/* 齿轮速度按钮：hover 弹出竖向面板（速率在顶部 + 横向滑块），仿音量 */
-:deep(.plyr__speed-wrap) { position: relative; display: flex; align-items: center; }
-:deep(.plyr__speed-popup) { position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; display: none; flex-direction: column; align-items: center; gap: 6px; padding: 10px 12px; background: rgba(0,0,0,.8); border-radius: var(--radius-sm); backdrop-filter: blur(8px); z-index: 20; }
-:deep(.plyr__speed-popup.show) { display: flex; }
-:deep(.plyr__speed-rate) { font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; }
-:deep(.plyr__speed-range) { width: 120px; margin: 0; -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,.3); border-radius: 2px; cursor: pointer; accent-color: var(--accent); }
+
 
 /* 居中大播放按钮：半透明白毛玻璃 */
 :deep(.plyr__control--overlaid) {
