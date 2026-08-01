@@ -342,22 +342,52 @@ function injectSpeedButton() {
   if (!plyr) return
   const controls = plyr.elements?.container?.querySelector('.plyr__controls')
   if (!controls) return
-  if (controls.querySelector('.plyr__speed-btn')) return
+  if (controls.querySelector('.plyr__speed')) return
 
-  const btn = document.createElement('button')
-  btn.className = 'plyr__control plyr__speed-btn'
-  btn.type = 'button'
-  btn.title = '播放速度'
-  btn.innerHTML = '<span>1.0x</span>'
+  // 仿 Plyr 音量控件结构：容器（按钮 + range），hover 展开滑块
+  const wrap = document.createElement('div')
+  wrap.className = 'plyr__volume plyr__speed'
+  const min = SPEED_OPTIONS[0], max = SPEED_OPTIONS[SPEED_OPTIONS.length - 1]
+  const speedToValue = (s) => (s - min) / (max - min) * 100
+  const valueToSpeed = (v) => {
+    const exact = min + (v / 100) * (max - min)
+    return SPEED_OPTIONS.reduce((best, opt) => Math.abs(opt - exact) < Math.abs(best - exact) ? opt : best, SPEED_OPTIONS[0])
+  }
+  wrap.innerHTML = `<button class="plyr__control" type="button" data-plyr="speed" title="播放速度"><span class="plyr__speed-label">1.0x</span></button>
+    <input class="plyr__speed-range" data-plyr="speed-range" type="range" min="0" max="100" step="1" value="${speedToValue(1)}">`
+  controls.appendChild(wrap)
+
+  const btn = wrap.querySelector('button')
+  const range = wrap.querySelector('input')
+  const label = wrap.querySelector('.plyr__speed-label')
+
+  const applySpeed = (s) => {
+    if (plyr) plyr.speed = s
+    label.textContent = s + 'x'
+    range.value = speedToValue(s)
+  }
+
+  // 拖动滑块实时 snap
+  range.addEventListener('input', (e) => {
+    e.preventDefault()
+    const s = valueToSpeed(Number(e.target.value))
+    if (plyr) plyr.speed = s
+    label.textContent = s + 'x'
+  })
+  range.addEventListener('change', (e) => {
+    // 松手 snap 到档位
+    const s = valueToSpeed(Number(e.target.value))
+    applySpeed(s)
+  })
+  // 点击按钮循环切换
   btn.addEventListener('click', (e) => {
     e.preventDefault()
     const cur = plyr?.speed || 1
     const idx = SPEED_OPTIONS.indexOf(cur)
-    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length]
-    if (plyr) plyr.speed = next
-    btn.querySelector('span').textContent = next + 'x'
+    applySpeed(SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length])
   })
-  controls.appendChild(btn)
+
+  applySpeed(1)
 }
 
 // theater 状态变化时同步注入按钮的图标
@@ -620,8 +650,11 @@ function fmtBytes(n) {
 :deep(.plyr__controls__item) { margin-right: 8px; }
 :deep(.plyr__theater-btn) { margin-left: 0; }
 /* 速度按钮 + 竖向滑块弹窗 */
-:deep(.plyr__speed-btn) { cursor: pointer; min-width: 42px; text-align: center; }
-:deep(.plyr__speed-btn span) { font-size: 12px; font-weight: 600; }
+/* 速度控件：仿 Plyr 音量结构，hover 展开横向滑块 */
+:deep(.plyr__speed) { display: flex; align-items: center; }
+:deep(.plyr__speed-label) { font-size: 12px; font-weight: 600; min-width: 36px; text-align: center; }
+:deep(.plyr__speed-range) { width: 0; opacity: 0; transition: width .2s, opacity .2s; margin: 0; -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,.3); border-radius: 2px; cursor: pointer; accent-color: var(--accent); }
+:deep(.plyr__speed:hover .plyr__speed-range) { width: 70px; opacity: 1; }
 
 /* 居中大播放按钮：半透明白毛玻璃 */
 :deep(.plyr__control--overlaid) {
