@@ -69,11 +69,12 @@
           <div v-if="expanded === t.id && t.files?.length" class="files">
             <div v-for="f in t.files" :key="f.key" class="file-row">
               <span class="fstatus" :class="f.status"><component :is="fileIcon(f.status)" :size="14" /></span>
-              <span class="fname" :title="f.path">{{ f.name }}</span>
+              <span class="fname" :title="f.path || fileLabel(f)">{{ f.name || fileLabel(f) }}</span>
               <span v-if="firstLine(f.caption)" class="fcap" :title="f.caption">
                 <MessageSquare :size="11" /> {{ firstLine(f.caption) }}
               </span>
-              <span class="fsize muted">{{ fmtBytes(f.downloaded) }} / {{ fmtBytes(f.size) }}</span>
+              <span v-if="f.size > 0" class="fsize muted">{{ fmtBytes(f.downloaded) }} / {{ fmtBytes(f.size) }}</span>
+              <span v-else-if="f.status === 'pending'" class="fsize muted">排队中</span>
               <span v-if="f.error" class="ferr" :title="f.error">失败</span>
             </div>
           </div>
@@ -276,7 +277,14 @@ async function remove(t) {
 // --- 格式化 helper（保留现有）---
 const percent = (t) => (t.totalSize > 0 ? Math.min(100, Math.round((t.downloaded / t.totalSize) * 100)) : 0)
 const taskName = (t) => {
-  if (t.files?.length) return t.files[0].fromName || t.urls[0]
+  // 跳过预填（排队中、无 fromName）的条目，找第一个有发送者名字的
+  if (t.files?.length) {
+    const named = t.files.find((f) => f.fromName)
+    if (named) return named.fromName
+    // 全是预填（都还没 OnAdd）→ 显示文件数 + 第一个的 msgId
+    const cnt = t.files.length
+    return t.files[0].msgId ? `${cnt} 个文件（从 #${t.files[0].msgId} 起）` : `${cnt} 个文件`
+  }
   return t.urls?.[0] || '下载任务'
 }
 function statusText(s) {
@@ -313,6 +321,10 @@ function firstLine(text, max = 30) {
   const line = String(text).split(/\r?\n/)[0].trim()
   if (!line) return ''
   return line.length > max ? line.slice(0, max) + '…' : line
+}
+// 预填（排队中）的文件没有 name，显示占位标签
+function fileLabel(f) {
+  return f.msgId ? `消息 #${f.msgId}` : '排队中'
 }
 </script>
 
