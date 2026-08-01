@@ -194,6 +194,8 @@ func (s *Server) gracefulStop() error {
 	defer cancel()
 
 	s.tasks.shutdown()
+	s.qr.closeAll()
+	s.code.closeAll()
 	s.accounts.close()
 	if s.http != nil {
 		_ = s.http.Shutdown(ctx)

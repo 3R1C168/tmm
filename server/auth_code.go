@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram/auth"
@@ -71,6 +72,18 @@ func (m *codeManager) remove(id string) {
 	m.mu.Lock()
 	delete(m.sessions, id)
 	m.mu.Unlock()
+}
+
+// closeAll cancels all in-flight sessions (used on shutdown). Prevents leaking
+// client.Run goroutines when a code login flow is still waiting for input.
+func (m *codeManager) closeAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		if s.cancel != nil {
+			s.cancel()
+		}
+	}
 }
 
 func (s *codeSession) snapshot() map[string]any {
@@ -178,6 +191,17 @@ func (srv *Server) startCodeLogin(ctx context.Context, ns string) (*codeSession,
 	runCtx, cancel := context.WithCancel(logctx.With(context.Background(),
 		logctx.From(ctx).Named("codelogin").With(zap.String("ns", ns))))
 	sess.cancel = cancel
+
+	// TTL: 5 分钟未完成自动取消，避免泄漏。
+	go func() {
+		t := time.NewTimer(5 * time.Minute)
+		defer t.Stop()
+		select {
+		case <-sess.done:
+		case <-t.C:
+			cancel()
+		}
+	}()
 
 	go func() {
 		defer close(sess.done)

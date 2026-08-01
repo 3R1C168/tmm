@@ -236,7 +236,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
@@ -372,6 +372,13 @@ onMounted(async () => {
   await loadChats()
   await nextTick()
   setupChatObserver()
+})
+
+// 组件卸载时清理：IntersectionObserver、待中的消息请求、重试定时器，
+// 避免 observer 泄漏和卸载后 ref 仍被写入。
+onBeforeUnmount(() => {
+  if (chatObserver) { chatObserver.disconnect(); chatObserver = null }
+  abortPending()
 })
 // 滚动元素 = DynamicScroller 的根 .vue-recycle-scroller（自带 overflow-y:auto）
 // 外层 .msg-scroll 不再滚动，避免双层滚动脱节导致 loadMore 不触发
@@ -827,10 +834,6 @@ async function createTask(sel, extraOpts) {
 }
 
 function typeLabel(t) { return { private: '私聊', group: '群组', channel: '频道' }[t] || t }
-function avatarColor(id) {
-  const palette = ['#4f7cff', '#22b07d', '#f79009', '#f04438', '#8b5cf6', '#06b6d4', '#ec4899']
-  return palette[Math.abs(Number(id) || 0) % palette.length]
-}
 function fmtBytes(n) {
   if (!n) return '0 B'
   const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0
@@ -896,7 +899,6 @@ function fmtDate(ts) {
 .skel-media, .skel-line { background: linear-gradient(90deg, var(--bg-hover) 25%, var(--border) 50%, var(--bg-hover) 75%); background-size: 200% 100%; animation: skel-wave 1.4s ease-in-out infinite; }
 @keyframes skel-wave { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes reconnect-pulse { 0%,100% { opacity: .5 } 50% { opacity: 1 } }
-.msg-stack { display: flex; flex-direction: column; align-items: flex-start; }
 .msg-row { padding: 3px 0; width: 100%; }
 /* telegram-tt 布局：flex 行，内容定宽，CSS max-width 封顶 */
 .msg { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
@@ -938,7 +940,6 @@ function fmtDate(ts) {
 
 .media-box { cursor: zoom-in; }
 .thumb-wrap { position: relative; border-radius: var(--radius); overflow: hidden; }
-.thumb { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--bg-hover); border-radius: var(--radius); }
 .play-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .play-ico { width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .thumb-wrap:hover .play-ico { background: rgba(0,0,0,.7); transform: scale(1.06); }
@@ -982,12 +983,6 @@ function fmtDate(ts) {
 .album-cell .cell-play svg { filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
 .album-cell .cell-dur { position: absolute; right: 5px; bottom: 5px; background: rgba(0,0,0,.55); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); pointer-events: none; }
 .bubble.album .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.dl-group { display: inline-flex; align-items: center; gap: 4px; border: none; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: var(--radius-sm); transition: .13s; }
-.dl-group:hover { background: var(--accent); color: #fff; }
-.dl-msg { display: inline-flex; align-items: center; gap: 4px; border: none; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: var(--radius-sm); transition: .13s; }
-.dl-msg:hover:not(:disabled) { background: var(--accent); color: #fff; }
-.dl-msg:disabled { background: var(--bg-hover); color: var(--text-3); opacity: .5; cursor: default; }
-
 /* 回到最新 */
 .back-top {
   position: absolute; right: 24px; bottom: 24px; z-index: 10;

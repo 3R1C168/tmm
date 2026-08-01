@@ -66,6 +66,19 @@ func (m *qrManager) remove(id string) {
 	m.mu.Unlock()
 }
 
+// closeAll cancels all in-flight sessions (used on shutdown). Sessions whose
+// login flow is still blocked waiting for user input would otherwise leak the
+// underlying client.Run goroutine and MTProto connection forever.
+func (m *qrManager) closeAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		if s.cancel != nil {
+			s.cancel()
+		}
+	}
+}
+
 func (s *qrSession) snapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -136,6 +149,18 @@ func (srv *Server) startQRLogin(ctx context.Context, ns string) (*qrSession, err
 	runCtx, cancel := context.WithCancel(logctx.With(context.Background(),
 		logctx.From(ctx).Named("qrlogin").With(zap.String("ns", ns))))
 	sess.cancel = cancel
+
+	// TTL: 用户发起登录后若 5 分钟未完成（关闭浏览器/忘记输入），自动取消，
+	// 避免 client.Run goroutine 和 MTProto 连接永久泄漏。
+	go func() {
+		t := time.NewTimer(5 * time.Minute)
+		defer t.Stop()
+		select {
+		case <-sess.done:
+		case <-t.C:
+			cancel()
+		}
+	}()
 
 	go func() {
 		defer close(sess.done)

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -219,6 +220,9 @@ func (m *accountManager) accountsSnapshot() []*account {
 	for _, a := range m.accounts {
 		out = append(out, a)
 	}
+	// 按 ns 排序，保证 activeAccount()/list() 返回顺序稳定，
+	// 避免 map 迭代随机导致"当前账号"在多账号间跳动。
+	sort.Slice(out, func(i, j int) bool { return out[i].ns < out[j].ns })
 	return out
 }
 

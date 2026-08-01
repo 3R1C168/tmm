@@ -688,7 +688,11 @@ func (s *Server) downloadToFile(ctx context.Context, a *account, loc tg.InputFil
 			return errors.Errorf("unexpected response %T", res)
 		}
 		if len(file.Bytes) == 0 {
-			break
+			// 0 字节响应：删除空 .part，返回错误。否则会把 0 字节文件 rename
+			// 成最终缓存文件，后续 mediaExists 命中返回空文件假成功。
+			f.Close()
+			_ = os.Remove(tmp)
+			return errors.Errorf("empty response at offset %d", off)
 		}
 		if _, err := f.Write(file.Bytes); err != nil {
 			f.Close()

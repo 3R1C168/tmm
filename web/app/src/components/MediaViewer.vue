@@ -79,7 +79,7 @@ import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
 import { api } from '../api'
-import { Download, X, TriangleAlert, Maximize, Minimize, ChevronLeft, ChevronRight, ZoomOut, ZoomIn, RotateCcw } from 'lucide-vue-next'
+import { Download, X, TriangleAlert, ChevronLeft, ChevronRight, ZoomOut, ZoomIn, RotateCcw } from 'lucide-vue-next'
 
 const props = defineProps({
   modelValue: Boolean,

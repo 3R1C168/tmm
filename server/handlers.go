@@ -95,6 +95,12 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 先订阅再 publish 快照：原顺序是 publish 后 subscribe，新订阅者收不到
+	// 这次快照重放。先 subscribe 保证后续 publish 能投递到该 channel。
+	ch := s.broker.subscribe()
+	filtered := filterByTask(ch, id)
+	defer s.broker.unsubscribe(ch)
+
 	// replay current snapshot immediately so late joiners see state
 	if task, ok := s.store.get(id); ok {
 		task.mu.Lock()
@@ -103,9 +109,6 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 		s.broker.publish("task", snap) // n.b. broadcast; filtered below by id
 	}
 
-	ch := s.broker.subscribe()
-	filtered := filterByTask(ch, id)
-	defer s.broker.unsubscribe(ch)
 	serveSSE(w, r, filtered)
 }
 
