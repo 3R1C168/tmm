@@ -194,6 +194,14 @@ func (s *State) Complete() bool {
 	return s.done == numPieces(s.size, s.partSize)
 }
 
+// HasProgress reports whether any piece has been marked complete (done > 0),
+// i.e. this is a real resume of a partial download rather than a fresh start.
+func (s *State) HasProgress() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.done > 0
+}
+
 // markMissingFrom 把从 offset（含）开始的 piece 全部标记为未完成，
 // 让后续 Missing() 返回这些 piece 以便重新下载。
 // 用于「磁盘实际字节数 < 声明 size」时强制补齐尾部——弥补 state 与磁盘

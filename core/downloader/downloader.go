@@ -89,8 +89,11 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 
 	threads := tutil.BestThreads(elem.File().Size(), d.opts.Threads)
 
-	if state := elem.Resume(); state != nil {
-		// resume: only fetch the pieces that are still missing
+	// 全新下载（state 无进度）走原版 Parallel——经验证完整可靠。
+	// 仅当 state 有部分进度（done>0，即之前下过一部分）才走 fetchPiece resume。
+	// 之前的 bug：全新下载也走 fetchPiece（手动 UploadGetFile），它对最后一块
+	// 的处理在某些情况下少下，导致文件缺 ~1MB 损坏。
+	if state := elem.Resume(); state != nil && state.HasProgress() && !state.Complete() {
 		if err := d.resume(ctx, client, elem, state, threads); err != nil {
 			return errors.Wrap(err, "resume download")
 		}
@@ -105,8 +108,7 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 		return errors.Wrap(err, "download")
 	}
 
-	// gotd plain 模式可能提前退出（服务器返回短块被当 EOF），导致磁盘字节不足。
-	// ensureComplete 会校验并按需补下缺块。
+	// Parallel 后兜底校验（极少数情况 Parallel 也可能不完整）。
 	if st := elem.Resume(); st != nil {
 		return d.ensureComplete(ctx, client, elem, st, threads)
 	}
