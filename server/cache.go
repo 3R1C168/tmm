@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -163,14 +164,8 @@ func (c *cache) evictLRU(maxBytes int64, logf func(msg string, args ...any)) {
 	if total <= maxBytes {
 		return
 	}
-	// sort oldest first
-	for i := 0; i < len(files); i++ {
-		for j := i + 1; j < len(files); j++ {
-			if files[j].mod < files[i].mod {
-				files[i], files[j] = files[j], files[i]
-			}
-		}
-	}
+		// sort oldest first
+		sort.Slice(files, func(i, j int) bool { return files[i].mod < files[j].mod })
 	removed := int64(0)
 	count := 0
 	for _, f := range files {

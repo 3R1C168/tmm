@@ -179,12 +179,6 @@ func (a *account) run(ctx context.Context) {
 	}
 }
 
-func (a *account) isAuthorized() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.authorized
-}
-
 // ready reports whether the account is authorized and its pool is available.
 func (a *account) ready() bool {
 	a.mu.RLock()

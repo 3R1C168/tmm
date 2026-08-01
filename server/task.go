@@ -236,24 +236,32 @@ func (m *taskManager) run(id string) {
 		return
 	}
 
-	a, ok := m.srv.accounts.get(task.Account)
-	if !ok || !a.ready() {
-		m.fail(task, errors.Errorf("account '%s' is not available", task.Account))
-		return
-	}
-
+	// 立即注册 cancel，避免 pause/delete 在 cancel 注册窗口内找不到 task
+	// （原代码在 dl.Run 启动后才注册，用户在此窗口点 pause 会误判未运行）。
 	ctx, cancel := context.WithCancel(logctx.With(context.Background(),
 		logctx.From(context.Background()).Named("task").With(
 			zap.String("task", id), zap.String("ns", task.Account))))
 	m.mu.Lock()
+	if existing, ok := m.cancels[id]; ok {
+		// 上一次运行的 cancel 还没清理（异常退出），先取消旧的
+		existing()
+	}
 	m.cancels[id] = cancel
+	m.running = id
 	m.mu.Unlock()
 	defer func() {
 		cancel()
 		m.mu.Lock()
 		delete(m.cancels, id)
+		m.running = ""
 		m.mu.Unlock()
 	}()
+
+	a, ok := m.srv.accounts.get(task.Account)
+	if !ok || !a.ready() {
+		m.fail(task, errors.Errorf("account '%s' is not available", task.Account))
+		return
+	}
 
 	now := time.Now()
 	task.mu.Lock()

@@ -98,7 +98,8 @@ type Server struct {
 	msgsMu       sync.Mutex
 	msgsInflight map[string]*msgsCall
 
-	shutdownOnce chan struct{}
+	shutdownOnce sync.Once
+	shutdownDone chan struct{}
 }
 
 // New builds the service. The storage engine is shared by all accounts (bbolt
@@ -135,7 +136,7 @@ func New(opts Options, stg kv.Storage) *Server {
 		thumbInflight: make(map[string]chan struct{}),
 		noThumb:       make(map[string]time.Time),
 		msgsInflight:  make(map[string]*msgsCall),
-		shutdownOnce:  make(chan struct{}),
+		shutdownDone:  make(chan struct{}),
 	}
 	s.accounts = newAccountManager(stg, opts.Proxy, opts.NTP)
 	s.tasks = newTaskManager(s)
@@ -180,7 +181,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-	case <-s.shutdownOnce:
+	case <-s.shutdownDone:
 	case err := <-errCh:
 		return err
 	}
@@ -203,13 +204,9 @@ func (s *Server) gracefulStop() error {
 	return s.stg.Close()
 }
 
-// Shutdown requests a graceful stop (idempotent). Used by /api/shutdown.
+// Shutdown requests a graceful stop (idempotent via sync.Once). Used by /api/shutdown.
 func (s *Server) Shutdown() {
-	select {
-	case <-s.shutdownOnce:
-	default:
-		close(s.shutdownOnce)
-	}
+	s.shutdownOnce.Do(func() { close(s.shutdownDone) })
 }
 
 // publishTask broadcasts a task snapshot to all SSE subscribers.

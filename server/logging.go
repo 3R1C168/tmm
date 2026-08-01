@@ -1,14 +1,11 @@
 package server
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-
-	"github.com/iyear/tdl/core/logctx"
 )
 
 // initLogger builds a zap logger that writes both to stderr and to a rotating
@@ -40,9 +37,4 @@ func (s *Server) log() *zap.Logger {
 		return zap.NewNop()
 	}
 	return s.logger
-}
-
-// ctxWithLog returns a context carrying the server logger for logctx.
-func (s *Server) ctxWithLog(ctx context.Context) context.Context {
-	return logctx.With(ctx, s.log())
 }

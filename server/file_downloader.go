@@ -242,11 +242,6 @@ func (ss *streamSession) downloadAndServe(ctx context.Context, w http.ResponseWr
 	return nil
 }
 
-// downloadOne downloads a single chunk to disk.
-func (ss *streamSession) downloadOne(ctx context.Context, p piece) error {
-	return ss.fetchOne(ctx, p)
-}
-
 // WaitForRange blocks until every chunk covering [start, end] is on disk.
 // Used for serveProbe and prefetchTail where we need specific bytes.
 func (ss *streamSession) WaitForRange(ctx context.Context, start, end int64) error {
@@ -256,7 +251,7 @@ func (ss *streamSession) WaitForRange(ctx context.Context, start, end int64) err
 			return ctx.Err()
 		}
 		if !ss.chunkReady(p.off, p.end) {
-			if err := ss.downloadOne(ctx, p); err != nil {
+			if err := ss.fetchOne(ctx, p); err != nil {
 				return err
 			}
 		}
