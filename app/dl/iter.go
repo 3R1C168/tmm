@@ -352,6 +352,10 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 
 	if resume == nil || resume.Complete() {
 		// fresh download, or a leftover complete state: truncate and start over
+		logctx.From(ctx).Info("fresh download (truncating)",
+			zap.String("path", path),
+			zap.Bool("resumeNil", resume == nil),
+			zap.Bool("resumeComplete", resume != nil && resume.Complete()))
 		if err = to.Truncate(0); err != nil {
 			_ = to.Close()
 			i.err = errors.Wrap(err, "truncate file")
@@ -363,6 +367,11 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 			return false, false
 		}
 		resume = downloader.NewState(downloader.StatePath(path), item.Size, downloader.MaxPartSize)
+	} else {
+		missing := resume.Missing()
+		logctx.From(ctx).Info("resume partial download",
+			zap.String("path", path),
+			zap.Int("missingPieces", len(missing)))
 	}
 
 	i.elem <- &iterElem{

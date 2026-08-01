@@ -359,27 +359,18 @@ function fileLabel(f) {
 
 .spacer { flex: 1; }
 
-/* --- 任务卡片：4 段式单行（勾选 | 名+状态 ‖ 进度条 ‖ 速率 ‖ 按钮）---
-   段间用虚拟分割线（细竖线+留白），仿 Firefox 定制工具栏。
-   自适应：名+进度条可收缩，速率+按钮固定，窄屏不重叠。 */
+/* --- 任务卡片：4 段式单行（勾选 | 名+状态 | 进度条 | 速率 | 按钮）---
+   段间靠 padding 留白自然分布，进度条 flex:1 撑满中间，按钮 margin-left:auto 推右。 */
 .task-card { margin-bottom: 6px; padding: 8px 12px !important; }
 .trow { display: flex; align-items: center; gap: 0; min-width: 0; }
 /* 多选框：垂直居中，覆盖 el-checkbox 默认 margin */
 .pick { flex: none; align-self: center; margin-right: 12px; }
 .pick :deep(.el-checkbox) { margin-right: 0; height: auto; }
 .pick :deep(.el-checkbox__label) { display: none; } /* 无文字，去掉占位 */
-/* 段分隔：除多选框外，每段左侧加细竖线 + 留白 */
+/* 段间留白（无可见分割线，靠 padding 间距）*/
 .trow > .tname-wrap, .trow > .tprog-wrap, .trow > .tSpeed, .trow > .tactions {
   padding-left: 14px;
-  position: relative;
   min-width: 0;
-}
-.trow > .tname-wrap::before, .trow > .tprog-wrap::before, .trow > .tSpeed::before, .trow > .tactions::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 20%; bottom: 20%;
-  width: 1px;
-  background: var(--border);
 }
 /* 第1段：任务名+状态标签（可收缩，窄屏省略）*/
 .tname-wrap { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; }
