@@ -71,9 +71,11 @@ func (p *progressAdapter) OnAdd(elem downloader.Elem) {
 	if existing := p.findFileLocked(key); existing != nil {
 		existing.Status = FileRunning
 		existing.Error = ""
-		// 刷新可能变化的元数据（路径在 resume 时可能变）
+		// 刷新可能变化的元数据（路径在 resume 时可能变；FromName/FromID 预填时没有）
 		existing.Name = e.Name()
 		existing.Path = e.ToPath()
+		existing.FromName = e.FromName()
+		existing.FromID = e.FromID()
 		existing.Caption = e.Caption()
 		existing.Size = e.File().Size()
 		action = "updated"
