@@ -413,10 +413,11 @@ function fileLabel(f) {
 .tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
 /* 第2段：进度条吃剩余空间，可收缩（min-width:0 允许窄屏压缩）*/
 .tprog-wrap { flex: 1 1 auto; min-width: 60px; }
+.tprog-wrap :deep(.el-progress) { width: 100%; }
 /* 第3段：速率/字节数，固定宽度不收缩，等宽避免跳动 */
 .tSpeed { flex: none; font-size: 11.5px; color: var(--text-2); width: 84px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-/* 第4段按钮：flex:none 固定，margin-left:auto 推到最右 */
-.tactions { flex: none; }
+/* 第4段按钮：margin-left:auto 推到容器最右，flex:none 固定宽度 */
+.tactions { display: flex; flex-direction: row; gap: 4px; flex: none; align-items: center; margin-left: auto; }
 
 /* meta/错误/详情在主行下方，左缩进对齐任务名（避开多选框）*/
 .tmeta { font-size: 11px; margin-top: 4px; margin-left: 40px; display: flex; flex-wrap: wrap; gap: 5px; }
@@ -436,7 +437,6 @@ function fileLabel(f) {
 .ferr { color: var(--red); flex: none; }
 
 /* 第4段：控制按钮——位置固定（flex: none 最右），透明底悬停浅灰，无填充色 */
-.tactions { display: flex; flex-direction: row; gap: 4px; flex: none; align-items: center; }
 .tactions :deep(.act-btn) {
   margin-left: 0 !important;
   border: 1px solid transparent !important;
