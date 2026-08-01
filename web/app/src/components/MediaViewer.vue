@@ -309,8 +309,8 @@ function setupPlyr() {
   // 注入"网页全屏"按钮到 Plyr 控件条（音量右边）：Plyr 不自带此控件，
   // 用 DOM 插入一个与 Plyr 原生按钮同风格的按钮，点击触发 theater 模式
   // （网页全屏，非浏览器全屏 API）。
-  injectTheaterButton()
   injectSpeedButton()
+  injectTheaterButton()
 }
 
 function injectTheaterButton() {
@@ -342,62 +342,22 @@ function injectSpeedButton() {
   if (!plyr) return
   const controls = plyr.elements?.container?.querySelector('.plyr__controls')
   if (!controls) return
-  if (controls.querySelector('.plyr__speed-wrap')) return
+  if (controls.querySelector('.plyr__speed-btn')) return
 
-  const wrap = document.createElement('div')
-  wrap.className = 'plyr__speed-wrap'
-  wrap.innerHTML = `<button class="plyr__control plyr__speed-btn" type="button" title="播放速度"><span>1.0x</span></button>
-    <div class="plyr__speed-popup"><div class="plyr__speed-slider" role="slider" tabindex="0">
-      <div class="plyr__speed-track"></div><div class="plyr__speed-fill"></div><div class="plyr__speed-thumb"></div>
-    </div><div class="plyr__speed-label">1.0x</div></div>`
-  controls.appendChild(wrap)
-
-  const btn = wrap.querySelector('.plyr__speed-btn')
-  const popup = wrap.querySelector('.plyr__speed-popup')
-  const slider = wrap.querySelector('.plyr__speed-slider')
-  const fill = wrap.querySelector('.plyr__speed-fill')
-  const thumb = wrap.querySelector('.plyr__speed-thumb')
-  const label = wrap.querySelector('.plyr__speed-label')
-
-  const speedToPercent = (s) => (s - SPEED_OPTIONS[0]) / (SPEED_OPTIONS[SPEED_OPTIONS.length - 1] - SPEED_OPTIONS[0])
-  const percentToSpeed = (p) => {
-    // snap 到最近档位
-    const clamped = Math.max(0, Math.min(1, p))
-    const exact = SPEED_OPTIONS[0] + clamped * (SPEED_OPTIONS[SPEED_OPTIONS.length - 1] - SPEED_OPTIONS[0])
-    return SPEED_OPTIONS.reduce((best, opt) => Math.abs(opt - exact) < Math.abs(best - exact) ? opt : best, SPEED_OPTIONS[0])
-  }
-  const applySpeed = (s) => {
-    if (plyr) plyr.speed = s
-    const pct = speedToPercent(s)
-    fill.style.height = (pct * 100) + '%'
-    thumb.style.bottom = (pct * 100) + '%'
-    label.textContent = s + 'x'
-    btn.querySelector('span').textContent = s + 'x'
-  }
-
-  // hover 显示弹窗
-  wrap.addEventListener('mouseenter', () => popup.classList.add('show'))
-  wrap.addEventListener('mouseleave', () => popup.classList.remove('show'))
-
-  // 拖动滑块（竖向：bottom 越大越快）
-  let dragging = false
-  const onDragMove = (clientY) => {
-    const rect = slider.getBoundingClientRect()
-    const p = 1 - (clientY - rect.top) / rect.height
-    applySpeed(percentToSpeed(p))
-  }
-  slider.addEventListener('mousedown', (e) => { dragging = true; onDragMove(e.clientY); e.preventDefault() })
-  document.addEventListener('mousemove', (e) => { if (dragging) onDragMove(e.clientY) })
-  document.addEventListener('mouseup', () => { dragging = false })
-  // 点击档位按钮循环切换（便捷）
+  const btn = document.createElement('button')
+  btn.className = 'plyr__control plyr__speed-btn'
+  btn.type = 'button'
+  btn.title = '播放速度'
+  btn.innerHTML = '<span>1.0x</span>'
   btn.addEventListener('click', (e) => {
     e.preventDefault()
     const cur = plyr?.speed || 1
     const idx = SPEED_OPTIONS.indexOf(cur)
-    applySpeed(SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length])
+    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length]
+    if (plyr) plyr.speed = next
+    btn.querySelector('span').textContent = next + 'x'
   })
-
-  applySpeed(1)
+  controls.appendChild(btn)
 }
 
 // theater 状态变化时同步注入按钮的图标
@@ -660,16 +620,8 @@ function fmtBytes(n) {
 :deep(.plyr__controls__item) { margin-right: 8px; }
 :deep(.plyr__theater-btn) { margin-left: 0; }
 /* 速度按钮 + 竖向滑块弹窗 */
-:deep(.plyr__speed-wrap) { position: relative; display: flex; align-items: center; }
-:deep(.plyr__speed-btn) { cursor: pointer; min-width: 40px; }
+:deep(.plyr__speed-btn) { cursor: pointer; min-width: 42px; text-align: center; }
 :deep(.plyr__speed-btn span) { font-size: 12px; font-weight: 600; }
-:deep(.plyr__speed-popup) { position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; display: none; flex-direction: column; align-items: center; gap: 6px; padding: 10px 8px; background: rgba(0,0,0,.75); border-radius: var(--radius-sm); backdrop-filter: blur(8px); }
-:deep(.plyr__speed-popup.show) { display: flex; }
-:deep(.plyr__speed-slider) { position: relative; width: 6px; height: 80px; cursor: pointer; }
-:deep(.plyr__speed-track) { position: absolute; inset: 0; background: rgba(255,255,255,.25); border-radius: 3px; }
-:deep(.plyr__speed-fill) { position: absolute; bottom: 0; left: 0; right: 0; background: var(--accent); border-radius: 3px; }
-:deep(.plyr__speed-thumb) { position: absolute; left: 50%; width: 14px; height: 14px; border-radius: 50%; background: #fff; transform: translateX(-50%) translateY(50%); box-shadow: 0 1px 4px rgba(0,0,0,.3); }
-:deep(.plyr__speed-label) { color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; }
 
 /* 居中大播放按钮：半透明白毛玻璃 */
 :deep(.plyr__control--overlaid) {
