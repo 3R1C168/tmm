@@ -37,76 +37,59 @@
     <el-empty v-if="!filtered.length" description="暂无任务，在消息页选择媒体下载" />
 
     <div v-for="t in filtered" :key="t.id" class="task-card card">
+      <!-- 4 段式主行：勾选 | 名+状态 | 进度条 | 速率 | 按钮（按钮固定最右） -->
       <div class="trow">
         <el-checkbox
           class="pick"
           :model-value="selected.has(t.id)"
           @change="toggleSelect(t.id)"
         />
-        <div class="tico" :class="statusClass(t.status)"><component :is="statusIcon(t.status)" :size="18" /></div>
-        <div class="tmain">
-          <div class="tline1">
-            <span class="tname">{{ taskName(t) }}</span>
-            <el-tag size="small" :type="tagType(t.status)" effect="light">{{ statusText(t.status) }}</el-tag>
-          </div>
-          <div class="tmeta muted">
-            <span>{{ t.files?.length || 0 }} 个文件</span>
-            <span v-if="t.totalSize">· {{ fmtBytes(t.downloaded) }} / {{ fmtBytes(t.totalSize) }}</span>
-            <span>· {{ fmtTime(t.createdAt) }}</span>
-            <span class="mono">· #{{ t.id.slice(0, 8) }}</span>
-          </div>
+        <div class="tname-wrap">
+          <span class="tname">{{ taskName(t) }}</span>
+          <el-tag size="small" :type="tagType(t.status)" effect="light">{{ statusText(t.status) }}</el-tag>
+        </div>
 
+        <div class="tprog-wrap">
           <el-progress
             v-if="t.totalSize > 0"
             :percentage="percent(t)"
             :status="progressStatus(t.status)"
             :stroke-width="4"
-            class="tprog"
+            :show-text="false"
           />
-
-          <div v-if="t.error" class="terror"><TriangleAlert :size="14" /> {{ t.error }}</div>
-
-          <div v-if="expanded === t.id && t.files?.length" class="files">
-            <div v-for="f in t.files" :key="f.key" class="file-row">
-              <span class="fstatus" :class="f.status"><component :is="fileIcon(f.status)" :size="14" /></span>
-              <span class="fname" :title="f.path || fileLabel(f)">{{ f.name || fileLabel(f) }}</span>
-              <span v-if="firstLine(f.caption)" class="fcap" :title="f.caption">
-                <MessageSquare :size="11" /> {{ firstLine(f.caption) }}
-              </span>
-              <span v-if="f.size > 0" class="fsize muted">{{ fmtBytes(f.downloaded) }} / {{ fmtBytes(f.size) }}</span>
-              <span v-else-if="f.status === 'done'" class="fsize muted">已完成（已存在）</span>
-              <span v-else-if="f.status === 'pending'" class="fsize muted">排队中</span>
-              <span v-if="f.error" class="ferr" :title="f.error">失败</span>
-            </div>
-          </div>
         </div>
 
+        <span class="tSpeed">{{ speedText(t) }}</span>
+
         <div class="tactions">
-          <el-button
-            class="act-btn"
-            size="small"
-            type="primary"
-            :disabled="!['pending', 'paused', 'failed', 'interrupted', 'done'].includes(t.status)"
-            @click="resume(t)"
-          >开始</el-button>
-          <el-button
-            class="act-btn"
-            size="small"
-            :disabled="t.status !== 'running'"
-            @click="pause(t)"
-          >暂停</el-button>
-          <el-button
-            class="act-btn"
-            size="small"
-            type="danger"
-            @click="remove(t)"
-          >删除</el-button>
-          <el-button
-            class="act-btn"
-            size="small"
-            :disabled="!t.files?.length"
-            @click="expanded = expanded === t.id ? '' : t.id"
-          >{{ expanded === t.id ? '收起' : '详情' }}</el-button>
+          <el-button class="act-btn" size="small" :disabled="!canStart(t.status)" @click="resume(t)">开始</el-button>
+          <el-button class="act-btn" size="small" :disabled="t.status !== 'running'" @click="pause(t)">暂停</el-button>
+          <el-button class="act-btn danger" size="small" @click="remove(t)">删除</el-button>
+          <el-button class="act-btn" size="small" :disabled="!t.files?.length" @click="expanded = expanded === t.id ? '' : t.id">{{ expanded === t.id ? '收起' : '详情' }}</el-button>
+        </div>
+      </div>
+
+      <!-- 第二行 meta + 错误 + 展开详情（不影响上方按钮位置） -->
+      <div class="tmeta muted">
+        <span>{{ t.files?.length || 0 }} 个文件</span>
+        <span v-if="t.totalSize">· {{ fmtBytes(t.downloaded) }} / {{ fmtBytes(t.totalSize) }}</span>
+        <span>· {{ fmtTime(t.createdAt) }}</span>
+        <span class="mono">· #{{ t.id.slice(0, 8) }}</span>
+      </div>
+
+      <div v-if="t.error" class="terror"><TriangleAlert :size="14" /> {{ t.error }}</div>
+
+      <div v-if="expanded === t.id && t.files?.length" class="files">
+        <div v-for="f in t.files" :key="f.key" class="file-row">
+          <span class="fstatus" :class="f.status"><component :is="fileIcon(f.status)" :size="14" /></span>
+          <span class="fname" :title="f.path || fileLabel(f)">{{ f.name || fileLabel(f) }}</span>
+          <span v-if="firstLine(f.caption)" class="fcap" :title="f.caption">
+            <MessageSquare :size="11" /> {{ firstLine(f.caption) }}
+          </span>
+          <span v-if="f.size > 0" class="fsize muted">{{ fmtBytes(f.downloaded) }} / {{ fmtBytes(f.size) }}</span>
+          <span v-else-if="f.status === 'done'" class="fsize muted">已完成（已存在）</span>
+          <span v-else-if="f.status === 'pending'" class="fsize muted">排队中</span>
+          <span v-if="f.error" class="ferr" :title="f.error">失败</span>
         </div>
       </div>
     </div>
@@ -114,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { useAppStore } from '../stores/app'
@@ -125,6 +108,33 @@ const expanded = ref('')
 
 // --- 选中态：按 id 跟踪，切过滤/SSE 都不丢 ---
 const selected = reactive(new Set())
+
+// --- 速率追踪：存每个 task 上次的 downloaded + 时间戳，upsertTask 时算差值 ---
+// key=task id, value={dl, ts, speed}
+const speedMap = reactive(new Map())
+function trackSpeed(t) {
+  if (t.status !== 'running') {
+    speedMap.delete(t.id)
+    return
+  }
+  const now = Date.now()
+  const prev = speedMap.get(t.id)
+  if (prev && now > prev.ts) {
+    const dt = now - prev.ts
+    const bytes = t.downloaded - prev.dl
+    if (dt > 0 && bytes >= 0) speedMap.set(t.id, { dl: t.downloaded, ts: now, speed: (bytes / dt) * 1000 })
+    else speedMap.set(t.id, { dl: t.downloaded, ts: now, speed: prev.speed })
+  } else {
+    speedMap.set(t.id, { dl: t.downloaded, ts: now, speed: 0 })
+  }
+}
+function speedText(t) {
+  if (t.status !== 'running') {
+    return t.totalSize > 0 ? `${fmtBytes(t.downloaded)} / ${fmtBytes(t.totalSize)}` : ''
+  }
+  const s = speedMap.get(t.id)
+  return s && s.speed > 0 ? `${fmtBytes(s.speed)}/s` : '—'
+}
 
 // --- 过滤：底层是 6 状态集合，默认全选 = 显示全部 ---
 const filterStatuses = reactive(new Set(['pending', 'running', 'paused', 'done', 'failed', 'interrupted']))
@@ -156,6 +166,16 @@ const filtered = computed(() =>
     .filter((t) => filterStatuses.has(t.status))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 )
+
+// SSE 推送（store.tasks 变化）时更新速率追踪
+watch(() => store.tasks, (tasks) => {
+  for (const t of tasks) trackSpeed(t)
+}, { deep: true })
+
+// 开始按钮可用状态：pending/paused/failed/interrupted/done 都能开始（done 重跑）
+function canStart(s) {
+  return ['pending', 'paused', 'failed', 'interrupted', 'done'].includes(s)
+}
 
 // --- 全选 / 已选计数 ---
 const allInViewSelected = computed(
@@ -362,28 +382,21 @@ function fileLabel(f) {
 
 .spacer { flex: 1; }
 
-/* --- 任务卡片（紧凑：小图标/细进度条/压间距）--- */
+/* --- 任务卡片：4 段式单行（勾选 | 名+状态 | 进度条 | 速率 | 按钮）--- */
 .task-card { margin-bottom: 6px; padding: 8px 10px !important; }
-.trow { display: flex; align-items: flex-start; gap: 10px; }
-.pick { flex: none; margin-top: 8px; }
-.tico {
-  width: 32px; height: 32px; flex: none; border-radius: var(--radius-sm); display: flex;
-  align-items: center; justify-content: center;
-  background: var(--bg-hover);
-}
-.tico.s-pending { color: var(--text-3); }
-.tico.s-running { color: #3b82f6; }
-.tico.s-paused { color: #f59e0b; }
-.tico.s-done { color: #10b981; }
-.tico.s-failed { color: #ef4444; }
-.tico.s-interrupted { color: #eab308; }
+.trow { display: flex; align-items: center; gap: 10px; }
+.pick { flex: none; }
+/* 第1段：任务名+状态标签 */
+.tname-wrap { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+/* 第2段：进度条占中间主空间 */
+.tprog-wrap { flex: 1; min-width: 80px; }
+/* 第3段：速率/字节数 */
+.tSpeed { flex: none; font-size: 11.5px; color: var(--text-2); min-width: 80px; text-align: right; white-space: nowrap; }
 
-.tmain { flex: 1; min-width: 0; }
-.tline1 { display: flex; align-items: center; gap: 8px; }
-.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tmeta { font-size: 11px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 5px; }
-.tprog { margin-top: 5px; max-width: 560px; }
-.terror { margin-top: 5px; color: var(--red); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
+/* meta/错误/详情在主行下方，不影响按钮位置 */
+.tmeta { font-size: 11px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 5px; }
+.terror { margin-top: 4px; color: var(--red); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
 
 .files { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
 .file-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
@@ -398,21 +411,34 @@ function fileLabel(f) {
 .fsize { flex: none; }
 .ferr { color: var(--red); flex: none; }
 
-/* 按钮横排 + 边框明显（亮/暗都清晰，disabled 仍可辨识）*/
-.tactions { display: flex; flex-direction: row; flex-wrap: wrap; gap: 5px; flex: none; align-items: center; align-self: center; }
+/* 第4段：控制按钮——位置固定（flex: none 最右），透明底悬停浅灰，无填充色 */
+.tactions { display: flex; flex-direction: row; gap: 4px; flex: none; align-items: center; }
 .tactions :deep(.act-btn) {
   margin-left: 0 !important;
-  border-width: 1px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--text-2) !important;
   font-weight: 500;
+  transition: all .12s;
 }
-/* disabled 不能淡到看不见 —— 边框保留、文字半透明 */
-.tactions :deep(.act-btn.is-disabled) {
-  opacity: .6;
+/* 悬停才显示底色（浅灰）*/
+.tactions :deep(.act-btn:hover:not(.is-disabled)) {
+  background: var(--bg-hover) !important;
   border-color: var(--border) !important;
-}
-/* 亮色模式：default 按钮边框加深，避免与背景糊掉 */
-:deep(.act-btn:not(.el-button--primary):not(.el-button--danger)):not(.is-disabled) {
-  border-color: var(--text-3) !important;
   color: var(--text-1) !important;
+}
+/* 删除按钮：文字保留红色提示危险，但仍无填充 */
+.tactions :deep(.act-btn.danger) {
+  color: var(--red) !important;
+}
+.tactions :deep(.act-btn.danger:hover:not(.is-disabled)) {
+  background: var(--red) !important;
+  color: #fff !important;
+  border-color: var(--red) !important;
+}
+/* disabled 透明度保留辨识 */
+.tactions :deep(.act-btn.is-disabled) {
+  opacity: .4;
+  cursor: not-allowed;
 }
 </style>
