@@ -353,13 +353,16 @@ function injectSpeedButton() {
     const exact = min + (v / 100) * (max - min)
     return SPEED_OPTIONS.reduce((best, opt) => Math.abs(opt - exact) < Math.abs(best - exact) ? opt : best, SPEED_OPTIONS[0])
   }
-  wrap.innerHTML = `<button class="plyr__control" type="button" data-plyr="speed" title="播放速度"><span class="plyr__speed-label">1.0x</span></button>
-    <input class="plyr__speed-range" data-plyr="speed-range" type="range" min="0" max="100" step="1" value="${speedToValue(1)}">`
+  wrap.innerHTML = `<button class="plyr__control" type="button" data-plyr="speed" title="播放速度"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    <div class="plyr__speed-slider-wrap">
+      <span class="plyr__speed-rate">1.0x</span>
+      <input class="plyr__speed-range" data-plyr="speed-range" type="range" min="0" max="100" step="1" value="${speedToValue(1)}">
+    </div>`
   controls.appendChild(wrap)
 
   const btn = wrap.querySelector('button')
   const range = wrap.querySelector('input')
-  const label = wrap.querySelector('.plyr__speed-label')
+  const label = wrap.querySelector('.plyr__speed-rate')
 
   const applySpeed = (s) => {
     if (plyr) plyr.speed = s
@@ -650,11 +653,12 @@ function fmtBytes(n) {
 :deep(.plyr__controls__item) { margin-right: 8px; }
 :deep(.plyr__theater-btn) { margin-left: 0; }
 /* 速度按钮 + 竖向滑块弹窗 */
-/* 速度控件：仿 Plyr 音量结构，hover 展开横向滑块 */
+/* 速度控件：齿轮按钮 + hover 展开（rate 标签在滑块上方，仿音量） */
 :deep(.plyr__speed) { display: flex; align-items: center; }
-:deep(.plyr__speed-label) { font-size: 12px; font-weight: 600; min-width: 36px; text-align: center; }
-:deep(.plyr__speed-range) { width: 0; opacity: 0; transition: width .2s, opacity .2s; margin: 0; -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,.3); border-radius: 2px; cursor: pointer; accent-color: var(--accent); }
-:deep(.plyr__speed:hover .plyr__speed-range) { width: 70px; opacity: 1; }
+:deep(.plyr__speed-slider-wrap) { display: flex; flex-direction: column; align-items: center; width: 0; opacity: 0; overflow: hidden; transition: width .2s, opacity .2s; }
+:deep(.plyr__speed:hover .plyr__speed-slider-wrap) { width: 72px; opacity: 1; }
+:deep(.plyr__speed-rate) { font-size: 10px; font-weight: 600; color: rgba(255,255,255,.8); margin-bottom: 2px; white-space: nowrap; }
+:deep(.plyr__speed-range) { width: 70px; margin: 0; -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,.3); border-radius: 2px; cursor: pointer; accent-color: var(--accent); }
 
 /* 居中大播放按钮：半透明白毛玻璃 */
 :deep(.plyr__control--overlaid) {
