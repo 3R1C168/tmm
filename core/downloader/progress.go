@@ -42,12 +42,20 @@ type writeAt struct {
 }
 
 func newWriteAt(elem Elem, progress Progress, partSize int) *writeAt {
+	// Seed the per-file progress counter with bytes already on disk when
+	// resuming, so the UI progress bar starts from the resumed offset instead
+	// of jumping back to 0. Without this, resume re-downloads only the missing
+	// pieces (correct) but the progress UI reads as if starting from scratch.
+	start := int64(0)
+	if st := elem.Resume(); st != nil {
+		start = st.DoneBytes()
+	}
 	return &writeAt{
 		elem:       elem,
 		progress:   progress,
 		partSize:   partSize,
 		state:      elem.Resume(),
-		downloaded: atomic.NewInt64(0),
+		downloaded: atomic.NewInt64(start),
 		lastFlush:  time.Now(),
 	}
 }

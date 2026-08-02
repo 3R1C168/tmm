@@ -35,19 +35,23 @@ type progressAdapter struct {
 	// lastPush tracks the last SSE emit per file key for throttling.
 	lastPush map[string]time.Time
 
-	// task 级速率滑动窗口（最近 N 次采样的瞬时 bytes/sec，取平均，避免抖动）
+	// task 级速率：独立 goroutine 每秒采样 total 差值算瞬时速率，EWMA 平滑。
+	// 之前在 OnDownload 里按 SSE push 触发计算，分子(全局 total 增量)与
+	// 分母(触发时局部 dt)时间窗错配，多文件并发时瞬时值会飙高数倍。
 	speedMu       sync.Mutex
-	speedSamples  []int64
-	lastTotal     int64
-	lastSpeedTime time.Time
+	speedEwma     int64     // EWMA 平滑后的速率 bytes/sec
+	lastSample    int64     // 上次采样的 total，用于算 1 秒增量
+	sampleStarted bool      // sampler goroutine 是否已启动（防重复）
+	stopSampler   chan struct{}
 }
 
 func newProgressAdapter(srv *Server, task *Task, opts dl.Options) *progressAdapter {
 	return &progressAdapter{
-		srv:      srv,
-		task:     task,
-		opts:     opts,
-		lastPush: make(map[string]time.Time),
+		srv:        srv,
+		task:       task,
+		opts:       opts,
+		lastPush:   make(map[string]time.Time),
+		stopSampler: make(chan struct{}),
 	}
 }
 
@@ -139,39 +143,68 @@ func (p *progressAdapter) OnDownload(elem downloader.Elem, state downloader.Prog
 	p.lastPush[key] = now
 	p.mu.Unlock()
 
-	p.updateSpeed()
+	// 首次 OnDownload 时启动速率采样 goroutine（每秒固定采样，独立于 SSE 频率）
+	p.ensureSpeedSampler()
 	p.srv.publishTask(p.task, "file")
 }
 
-// updateSpeed 用 task 总下载量的时间差算瞬时速率，滑动平均（最近 5 次），
-// 存入 task.Speed 供 taskSnapshot 输出。比前端按 SSE 差值算更准（不受 SSE 节流影响）。
-func (p *progressAdapter) updateSpeed() {
+// ensureSpeedSampler 启动一个每秒采样 total 的 goroutine（仅启动一次）。
+// 独立于 SSE push 频率，用固定 1 秒窗口算瞬时速率，EWMA(α=0.4) 平滑，
+// 避免「全局 total 增量 / 触发时局部 dt」时间窗错配导致的瞬时飙高。
+func (p *progressAdapter) ensureSpeedSampler() {
 	p.speedMu.Lock()
 	defer p.speedMu.Unlock()
-	now := time.Now()
-	total := p.task.TotalDownloaded()
-	if !p.lastSpeedTime.IsZero() && now.After(p.lastSpeedTime) {
-		dt := now.Sub(p.lastSpeedTime).Seconds()
-		if dt > 0 {
-			inst := int64(float64(total-p.lastTotal) / dt)
-			if inst >= 0 {
-				p.speedSamples = append(p.speedSamples, inst)
-				if len(p.speedSamples) > 5 {
-					p.speedSamples = p.speedSamples[1:]
-				}
+	if p.sampleStarted {
+		return
+	}
+	p.sampleStarted = true
+	p.lastSample = p.task.TotalDownloaded()
+	go p.runSpeedSampler()
+}
+
+func (p *progressAdapter) runSpeedSampler() {
+	const interval = time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.stopSampler:
+			return
+		case <-ticker.C:
+			total := p.task.TotalDownloaded()
+			p.speedMu.Lock()
+			inst := total - p.lastSample
+			p.lastSample = total
+			if inst < 0 {
+				inst = 0 // 防御：total 不应回退，但 resume 重置等场景可能触发
 			}
+			// EWMA：新样本权重 0.4，平滑历史，抑制抖动又不至于太迟钝
+			if p.speedEwma == 0 {
+				p.speedEwma = inst
+			} else {
+				p.speedEwma = int64(float64(p.speedEwma)*0.6 + float64(inst)*0.4)
+			}
+			p.task.Speed = p.speedEwma
+			p.speedMu.Unlock()
 		}
 	}
-	p.lastTotal = total
-	p.lastSpeedTime = now
-	// 平均
-	var sum int64
-	for _, s := range p.speedSamples {
-		sum += s
+}
+
+// stopSpeedSampler 停止采样 goroutine，置 Speed 为 0（任务结束）。
+func (p *progressAdapter) stopSpeedSampler() {
+	p.speedMu.Lock()
+	chanOpen := false
+	// 用 select-default 探测 channel 是否已关闭，避免重复 close panic
+	select {
+	case <-p.stopSampler:
+	default:
+		chanOpen = true
 	}
-	if len(p.speedSamples) > 0 {
-		p.task.Speed = sum / int64(len(p.speedSamples))
+	if chanOpen {
+		close(p.stopSampler)
 	}
+	p.speedMu.Unlock()
+	p.task.Speed = 0
 }
 
 func (p *progressAdapter) OnDone(elem downloader.Elem, derr error) {
@@ -233,6 +266,10 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 	if template == "" {
 		template = defaultTemplate
 	}
+	// 全局设置：文件名前缀 #msgId（开启后在模板渲染结果前加 "#22713 "）
+	if srv.settings.msgIdPrefix() {
+		template = "#{{ .MessageID }} " + template
+	}
 
 	takeout := dl.TakeoutMode(o.Takeout)
 	if !takeout.Valid() {
@@ -285,17 +322,18 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 	task.mu.Unlock()
 
 	opts := dl.Options{
-		Dir:        dir,
-		RewriteExt: o.RewriteExt,
-		SkipSame:   o.SkipSame,
-		Template:   template,
-		URLs:       task.URLs,
-		Dialogs:    dialogs,
-		Include:    o.Include,
-		Exclude:    o.Exclude,
-		Desc:       o.Desc,
-		Takeout:    takeout,
-		Group:      o.Group,
+		Dir:            dir,
+		RewriteExt:     o.RewriteExt,
+		SkipSame:       o.SkipSame,
+		Template:       template,
+		URLs:           task.URLs,
+		Dialogs:        dialogs,
+		Include:        o.Include,
+		Exclude:        o.Exclude,
+		Desc:           o.Desc,
+		Takeout:        takeout,
+		Group:          o.Group,
+		FilenameMaxLen: srv.settings.filenameMaxLen(),
 
 		// non-interactive: never prompt; always continue partial downloads
 		Continue: true,

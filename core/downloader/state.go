@@ -202,6 +202,24 @@ func (s *State) HasProgress() bool {
 	return s.done > 0
 }
 
+// DoneBytes reports how many bytes of completed pieces have been written. It is
+// used to seed the progress counter when resuming, so the UI progress bar
+// starts from the resumed offset instead of 0. Each fully-covered piece counts
+// as partSize bytes except the last piece which may be shorter. The result is
+// clamped to the file size.
+func (s *State) DoneBytes() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done == 0 {
+		return 0
+	}
+	b := int64(s.done) * int64(s.partSize)
+	if b > s.size {
+		b = s.size
+	}
+	return b
+}
+
 // MarkMissingFrom 把从 offset（含）开始的 piece 全部标记为未完成，
 // 让后续 Missing() 返回这些 piece 以便重新下载。
 // 用于「磁盘实际字节数 < 声明 size」时强制补齐尾部——弥补 state 与磁盘

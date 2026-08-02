@@ -56,6 +56,27 @@
     </div>
 
     <div class="card">
+      <h3 class="sec">文件名</h3>
+      <div class="setrow">
+        <div class="setinfo">
+          <div class="setname">文件名添加消息ID前缀</div>
+          <div class="setdesc muted">开启后，下载的文件名前会加上 <code class="code-hint">#22713</code> 前缀（消息ID + 空格），方便按消息查找文件。如：<code class="code-hint">#22713 video.mp4</code></div>
+        </div>
+        <el-switch v-model="settings.msgIdPrefix" @change="saveSettings" />
+      </div>
+      <div class="setrow">
+        <div class="setinfo">
+          <div class="setname">文件名最大长度（字节）</div>
+          <div class="setdesc muted">
+            文件名（不含扩展名）超出此长度时自动截断。<br />
+            <span class="os-hint">Windows / macOS / Linux 限制均为 255 字节，建议留余量给扩展名和临时后缀，默认 200。</span>
+          </div>
+        </div>
+        <el-input-number v-model="settings.filenameMaxLen" :min="0" :max="255" :step="10" @change="saveSettings" />
+      </div>
+    </div>
+
+    <div class="card">
       <h3 class="sec">服务</h3>
       <div class="kv"><span class="k">下载目录</span><span class="v mono">{{ store.config.downloadDir }}</span></div>
       <div class="kv"><span class="k">前端目录</span><span class="v mono">{{ store.config.webRoot }}</span></div>
@@ -77,7 +98,7 @@ import { Plus } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
-const settings = ref({ previewTakeout: false, cacheMaxMB: 5120, clearPreviewOnExit: true })
+const settings = ref({ previewTakeout: false, cacheMaxMB: 5120, clearPreviewOnExit: true, msgIdPrefix: false, filenameMaxLen: 200 })
 
 onMounted(async () => {
   try {
@@ -85,7 +106,9 @@ onMounted(async () => {
     settings.value = {
       previewTakeout: !!s.previewTakeout,
       cacheMaxMB: s.cacheMaxMB || 5120,
-      clearPreviewOnExit: s.clearPreviewOnExit !== false, // 默认 true，仅显式 false 才关
+      clearPreviewOnExit: s.clearPreviewOnExit !== false,
+      msgIdPrefix: s.msgIdPrefix === true,
+      filenameMaxLen: s.filenameMaxLen || 200,
     }
   } catch { /* use defaults */ }
 })
@@ -96,6 +119,8 @@ async function saveSettings() {
       previewTakeout: settings.value.previewTakeout,
       cacheMaxMB: settings.value.cacheMaxMB,
       clearPreviewOnExit: settings.value.clearPreviewOnExit,
+      msgIdPrefix: settings.value.msgIdPrefix,
+      filenameMaxLen: settings.value.filenameMaxLen,
     })
     ElMessage.success('设置已保存')
   } catch (e) { ElMessage.error(e.message) }
@@ -126,4 +151,6 @@ async function shutdown() {
 .setinfo { flex: 1; min-width: 0; }
 .setname { font-weight: 600; font-size: 14px; }
 .setdesc { font-size: 12.5px; margin-top: 3px; line-height: 1.5; }
+.code-hint { background: var(--bg-hover); padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.os-hint { color: var(--text-3); font-size: 11.5px; }
 </style>

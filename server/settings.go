@@ -29,20 +29,25 @@ type settings struct {
 	// seek-ahead buffering of a video you were watching, which is stale next run.
 	ClearPreviewOnExit bool `json:"clearPreviewOnExit"`
 
+	// MsgIdPrefix enables prefixing download filenames with #<MessageID> ,
+	// e.g. "#22713 video.mp4". Helps identify files by their source message.
+	MsgIdPrefix bool `json:"msgIdPrefix"`
+	// FilenameMaxLen truncates the final filename (without extension) to this
+	// many bytes, to respect filesystem name limits. 0 = no truncation.
+	// Windows=255, macOS=255 (HFS+/APFS), Linux=255 bytes.
+	FilenameMaxLen int `json:"filenameMaxLen"`
+
 	path string
 }
 
 func defaultSettings(path string) *settings {
 	return &settings{
-		// default off: benchmarks showed the takeout channel is slower than the
-		// normal channel on this DC for streaming, and it triggers a "data
-		// export" notification. Users can opt in via the settings page.
-		PreviewTakeout: false,
-		TakeoutMinMB:   50,
-		CacheMaxMB:     5120, // 5 GiB default cache
-		// default on: preview chunks are streaming by-products that go stale on
-		// exit; clearing them keeps the cache folder from growing unbounded.
+		PreviewTakeout:     false,
+		TakeoutMinMB:       50,
+		CacheMaxMB:         5120,
 		ClearPreviewOnExit: true,
+		MsgIdPrefix:        false,
+		FilenameMaxLen:     200, // 留余量给 .tmp/.tdlstate 后缀和扩展名
 		path:               path,
 	}
 }
@@ -59,6 +64,8 @@ func (st *settings) load() error {
 		TakeoutMinMB       int   `json:"takeoutMinMB"`
 		CacheMaxMB         int   `json:"cacheMaxMB"`
 		ClearPreviewOnExit *bool `json:"clearPreviewOnExit"`
+		MsgIdPrefix        *bool `json:"msgIdPrefix"`
+		FilenameMaxLen     *int  `json:"filenameMaxLen"`
 	}
 	if err := json.Unmarshal(b, &a); err != nil {
 		return errors.Wrap(err, "parse settings")
@@ -68,6 +75,12 @@ func (st *settings) load() error {
 	st.CacheMaxMB = a.CacheMaxMB
 	if a.ClearPreviewOnExit != nil {
 		st.ClearPreviewOnExit = *a.ClearPreviewOnExit
+	}
+	if a.MsgIdPrefix != nil {
+		st.MsgIdPrefix = *a.MsgIdPrefix
+	}
+	if a.FilenameMaxLen != nil {
+		st.FilenameMaxLen = *a.FilenameMaxLen
 	}
 	if st.TakeoutMinMB <= 0 {
 		st.TakeoutMinMB = 50
@@ -85,6 +98,8 @@ func (st *settings) save() error {
 		"takeoutMinMB":       st.TakeoutMinMB,
 		"cacheMaxMB":         st.CacheMaxMB,
 		"clearPreviewOnExit": st.ClearPreviewOnExit,
+		"msgIdPrefix":        st.MsgIdPrefix,
+		"filenameMaxLen":     st.FilenameMaxLen,
 	}
 	st.mu.RUnlock()
 	b, err := json.MarshalIndent(payload, "", "  ")
@@ -124,6 +139,20 @@ func (st *settings) clearPreviewOnExit() bool {
 	return st.ClearPreviewOnExit
 }
 
+// msgIdPrefix reports whether download filenames should be prefixed with #msgId.
+func (st *settings) msgIdPrefix() bool {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.MsgIdPrefix
+}
+
+// filenameMaxLen reports the max filename length (0 = unlimited).
+func (st *settings) filenameMaxLen() int {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.FilenameMaxLen
+}
+
 // snapshot returns the settings as a JSON-friendly map.
 func (st *settings) snapshot() map[string]any {
 	st.mu.RLock()
@@ -133,11 +162,13 @@ func (st *settings) snapshot() map[string]any {
 		"takeoutMinMB":       st.TakeoutMinMB,
 		"cacheMaxMB":         st.CacheMaxMB,
 		"clearPreviewOnExit": st.ClearPreviewOnExit,
+		"msgIdPrefix":        st.MsgIdPrefix,
+		"filenameMaxLen":     st.FilenameMaxLen,
 	}
 }
 
 // update applies a partial update and persists.
-func (st *settings) update(previewTakeout *bool, takeoutMinMB *int, cacheMaxMB *int, clearPreviewOnExit *bool) error {
+func (st *settings) update(previewTakeout *bool, takeoutMinMB *int, cacheMaxMB *int, clearPreviewOnExit *bool, msgIdPrefix *bool, filenameMaxLen *int) error {
 	st.mu.Lock()
 	if previewTakeout != nil {
 		st.PreviewTakeout = *previewTakeout
@@ -150,6 +181,12 @@ func (st *settings) update(previewTakeout *bool, takeoutMinMB *int, cacheMaxMB *
 	}
 	if clearPreviewOnExit != nil {
 		st.ClearPreviewOnExit = *clearPreviewOnExit
+	}
+	if msgIdPrefix != nil {
+		st.MsgIdPrefix = *msgIdPrefix
+	}
+	if filenameMaxLen != nil {
+		st.FilenameMaxLen = *filenameMaxLen
 	}
 	st.mu.Unlock()
 	return st.save()

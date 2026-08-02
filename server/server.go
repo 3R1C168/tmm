@@ -257,6 +257,7 @@ func (s *Server) router() *mux.Router {
 	api.HandleFunc("/tasks/{id}/pause", s.handlePauseTask).Methods(http.MethodPost)
 	api.HandleFunc("/tasks/{id}/resume", s.handleResumeTask).Methods(http.MethodPost)
 	api.HandleFunc("/tasks/{id}", s.handleDeleteTask).Methods(http.MethodDelete)
+	api.HandleFunc("/tasks/{id}/rename", s.handleRenameFile).Methods(http.MethodPost)
 	api.HandleFunc("/tasks/{id}/events", s.handleTaskEvents).Methods(http.MethodGet)
 	api.HandleFunc("/events", s.handleGlobalEvents).Methods(http.MethodGet)
 

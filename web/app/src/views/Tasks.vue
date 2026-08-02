@@ -1,306 +1,719 @@
 <template>
-  <div class="page tasks-page">
-    <!-- 行 1：状态筛选标签 + 快捷按钮 -->
-    <div class="filter-bar">
-      <div class="status-tabs">
-        <button
-          v-for="g in statusGroups"
-          :key="g.label"
-          class="stab"
-          :class="{ active: isGroupActive(g) }"
-          @click="toggleGroup(g)"
-        >{{ g.label }} <span class="count">{{ countByGroup(g) }}</span></button>
-      </div>
-      <div class="spacer" />
-      <div class="quick-actions">
-        <button class="qbtn" :disabled="countDone === 0" @click="clearCompleted">清空已完成</button>
-        <button class="qbtn" :disabled="countFailedInterrupted === 0" @click="retryFailed">重试失败</button>
-      </div>
+  <div class="dl-page">
+    <div class="dl-body">
+      <!-- 左侧边栏：状态 / 频道·群组 / 活动，双维度叠加筛选 -->
+      <aside class="dl-sidebar" :style="{ width: sidebarWidth + 'px' }">
+        <div class="cat-section">
+          <div class="cat-title">状态</div>
+          <button v-for="c in statusCats" :key="c.key" class="cat-item"
+            :class="{ active: statusFilter === c.key }" @click="statusFilter = statusFilter === c.key ? 'all' : c.key">
+            <component v-if="c.icon" :is="c.icon" :size="14" />
+            <span class="cat-label">{{ c.label }}</span>
+            <span class="cat-count">{{ c.count }}</span>
+          </button>
+        </div>
+
+        <div v-if="sourceCats.length" class="cat-section">
+          <div class="cat-title">频道 / 群组</div>
+          <button class="cat-item" :class="{ active: !sourceFilter }" @click="sourceFilter = ''">
+            <span class="cat-label">全部</span>
+            <span class="cat-count">{{ rows.length }}</span>
+          </button>
+          <button v-for="s in sourceCats" :key="s.name" class="cat-item"
+            :class="{ active: sourceFilter === s.name }" @click="sourceFilter = sourceFilter === s.name ? '' : s.name">
+            <span class="cat-dot" />
+            <span class="cat-label" :title="s.name">{{ s.name || '未知来源' }}</span>
+            <span class="cat-count">{{ s.count }}</span>
+          </button>
+        </div>
+
+        <div class="cat-section">
+          <div class="cat-title">活动</div>
+          <button class="cat-item" :class="{ active: activityFilter === 'active' }"
+            @click="activityFilter = activityFilter === 'active' ? '' : 'active'">
+            <Zap :size="14" />
+            <span class="cat-label">活跃</span>
+            <span class="cat-count">{{ activeCount }}</span>
+          </button>
+          <button class="cat-item" :class="{ active: activityFilter === 'inactive' }"
+            @click="activityFilter = activityFilter === 'inactive' ? '' : 'inactive'">
+            <Moon :size="14" />
+            <span class="cat-label">非活跃</span>
+            <span class="cat-count">{{ inactiveCount }}</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- 侧边栏宽度拖拽手柄 -->
+      <div class="sidebar-resize" @mousedown="startSidebarResize" />
+
+      <!-- 主区：工具栏 + 表头 + 列表 -->
+      <main class="dl-main">
+        <!-- 工具栏 -->
+        <div class="dl-toolbar">
+          <div class="toolbar-group">
+            <button class="tool-btn" :disabled="!selectedTaskIds.size" @click="batchStart" title="开始">
+              <Play :size="16" />
+            </button>
+            <button class="tool-btn" :disabled="!selectedTaskIds.size" @click="batchPause" title="暂停">
+              <Pause :size="16" />
+            </button>
+            <button class="tool-btn danger" :disabled="!selectedTaskIds.size" @click="batchDelete" title="删除">
+              <Trash2 :size="16" />
+            </button>
+          </div>
+          <div class="spacer" />
+          <div class="toolbar-group">
+            <el-popover :visible="colSettingsOpen" placement="bottom-end" :width="220" trigger="manual">
+              <template #reference>
+                <button class="tool-btn" :class="{ active: colSettingsOpen }" @click="colSettingsOpen = !colSettingsOpen" title="列设置">
+                  <Settings2 :size="16" />
+                </button>
+              </template>
+              <div class="col-settings">
+                <div class="col-settings-title">列设置（右键表头输入宽度，勾选显隐，↑↓调顺序）</div>
+                <div v-for="(c, i) in configurableColumns" :key="c.key" class="col-row">
+                  <el-checkbox v-model="c.visible" @change="saveColumns">{{ c.label }}</el-checkbox>
+                  <div class="col-arrows">
+                    <button class="col-arrow" :disabled="i === 0" @click="moveColumn(c.key, -1)" title="上移">↑</button>
+                    <button class="col-arrow" :disabled="i === configurableColumns.length - 1" @click="moveColumn(c.key, 1)" title="下移">↓</button>
+                  </div>
+                </div>
+                <div class="col-settings-actions">
+                  <button class="col-action-btn" @click="saveAsDefault">存为默认</button>
+                  <button class="col-action-btn" @click="resetToDefault">恢复默认</button>
+                </div>
+              </div>
+            </el-popover>
+          </div>
+        </div>
+
+        <!-- 表格区 -->
+        <div class="dl-table">
+          <!-- 表头（sticky，高度与行一致 34px）-->
+          <div class="thead">
+            <div class="th th-check">
+              <el-checkbox :model-value="allSelected" :indeterminate="someSelected" @change="toggleSelectAll" />
+            </div>
+            <div v-for="c in visibleColumns" :key="c.key"
+              class="th"
+              :class="{
+                'th-num': ['size','downloaded'].includes(c.key),
+                'th-flex': c.width === 0,
+                'th-dragging': dragCol === c.key,
+                'th-order-target': dragOrderKey && dragOrderKey !== c.key,
+              }"
+              :style="c.width > 0 ? { width: c.width + 'px', flex: 'none' } : {}"
+              draggable="true"
+              @dragstart="onColDragStart(c.key)" @dragover.prevent @drop="onColDrop(c.key)"
+              @dragend="dragOrderKey = null"
+              @contextmenu.prevent="promptColWidth(c.key, c.width)"
+            >
+              {{ c.label }}
+              <span class="col-resize" @mousedown="startColResize(c.key, $event)" />
+            </div>
+            <!-- 末尾 drop zone：允许把列拖到最后位置 -->
+            <div v-if="dragOrderKey" class="th th-end-drop"
+              @dragover.prevent @drop="onColDropEnd" @dragend="dragOrderKey = null">
+              <span class="drop-hint">⟲</span>
+            </div>
+          </div>
+          <!-- 拖拽列宽时的指示竖线 -->
+          <div v-if="dragCol" class="resize-indicator" :style="{ left: dragX + 'px' }" />
+
+          <!-- 列表区 -->
+          <div class="tbody">
+            <template v-for="g in groupedRows" :key="g.source">
+              <!-- 来源分组头：流式聚合信息，不按列对齐（避免空占位） -->
+              <div class="group-head" @click="toggleGroup(g.source)">
+                <div class="gh-fold">
+                  <component :is="collapsedGroups.has(g.source) ? ChevronRight : ChevronDown" :size="14" />
+                </div>
+                <span class="gh-name">{{ g.source || '未知来源' }}</span>
+                <span class="gh-tag">{{ g.rows.length }} 文件</span>
+                <span class="gh-tag">{{ fmtBytes(g.downloaded) }} / {{ fmtBytes(g.size) }}</span>
+                <span class="gh-tag gh-pct-tag">{{ groupPct(g) }}%</span>
+                <span v-if="g.speed > 0" class="gh-tag gh-speed">↓ {{ fmtBytes(g.speed) }}/s</span>
+              </div>
+              <!-- 文件行 -->
+              <div v-show="!collapsedGroups.has(g.source)" v-for="r in g.rows" :key="r.rowId"
+                class="trow" :class="{ selected: selected.has(r.rowId) }">
+                <div class="td td-check">
+                  <el-checkbox :model-value="selected.has(r.rowId)" @change="toggleSelect(r.rowId)" />
+                </div>
+                <template v-for="c in visibleColumns" :key="c.key">
+                  <!--文件名列：图标+文件名-->
+                  <div v-if="c.key === 'name'" class="td td-name"
+                    :style="c.width > 0 ? { width: c.width + 'px', flex: 'none' } : {}">
+                    <component :is="fileIcon(r.file.status)" :size="14" class="ficon" :class="r.file.status" />
+                    <span class="fname" :title="r.file.name || fileLabel(r.file)"
+                      @dblclick.stop="openRename(r)">{{ r.file.name || fileLabel(r.file) }}</span>
+                  </div>
+                  <!--消息ID列-->
+                  <div v-else-if="c.key === 'msgid'" class="td td-mono"
+                    :style="{ width: c.width + 'px', flex: 'none' }">
+                    {{ r.file.msgId ? '#' + r.file.msgId : '—' }}
+                  </div>
+                  <!--来源列-->
+                  <div v-else-if="c.key === 'source'" class="td td-source"
+                    :style="{ width: c.width + 'px', flex: 'none' }">
+                    <span class="src-name" :title="r.file.fromName">{{ r.file.fromName || '—' }}</span>
+                  </div>
+                  <!--备注列：消息文本 caption-->
+                  <div v-else-if="c.key === 'note'" class="td td-note"
+                    :style="{ width: c.width + 'px', flex: 'none' }">
+                    <span class="note-text" :title="r.file.caption">{{ firstLine(r.file.caption) || '—' }}</span>
+                  </div>
+                  <!--大小列-->
+                  <div v-else-if="c.key === 'size'" class="td td-num"
+                    :style="{ width: c.width + 'px', flex: 'none' }">
+                    {{ r.file.size > 0 ? fmtBytes(r.file.size) : '—' }}
+                  </div>
+                  <!--进度列-->
+                  <div v-else-if="c.key === 'progress'" class="td td-progress"
+                    :style="{ width: c.width + 'px', flex: 'none' }">
+                    <el-progress v-if="r.file.size > 0" :percentage="filePct(r.file)" :status="progressStatus(r.file.status)" :stroke-width="4" :show-text="false" />
+                    <span class="pct-text">{{ r.file.size > 0 ? filePct(r.file) + '%' : '—' }}</span>
+                  </div>
+                  <!--已下载列-->
+                  <div v-else-if="c.key === 'downloaded'" class="td td-num"
+                    :style="{ width: c.width + 'px', flex: 'none' }">
+                    {{ r.file.size > 0 ? fmtBytes(r.file.downloaded) + ' / ' + fmtBytes(r.file.size) : '—' }}
+                  </div>
+                  <!--状态列-->
+                  <div v-else-if="c.key === 'status'" class="td td-status"
+                    :style="{ width: c.width + 'px', flex: 'none' }">
+                    <span class="fstat" :class="r.file.status">{{ fileStatusText(r.file.status) }}</span>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <el-empty v-if="!groupedRows.length" description="暂无下载，在消息页选择媒体下载" />
+          </div>
+        </div>
+      </main>
     </div>
 
-    <!-- 行 2：批量操作工具栏 -->
-    <div class="batch-bar">
-      <el-checkbox
-        :model-value="allInViewSelected"
-        :indeterminate="someInViewSelected"
-        @change="toggleSelectAllInView"
-      >全选</el-checkbox>
-      <span v-if="selected.size > 0" class="sel-count">已选 {{ selectedCountInView }} 条</span>
-      <div class="spacer" />
-      <div class="batch-actions">
-        <button class="qbtn" :disabled="selected.size === 0" @click="batchPause">暂停</button>
-        <button class="qbtn" :disabled="selected.size === 0" @click="batchStart">开始</button>
-        <button class="qbtn danger" :disabled="selected.size === 0" @click="batchDelete">删除</button>
-      </div>
-    </div>
+    <!-- 底部状态栏 -->
+    <footer class="dl-statusbar">
+      <span>{{ totalFiles }} 文件</span>
+      <span class="sb-sep">·</span>
+      <span>{{ runningCount }} 下载中</span>
+      <span class="sb-sep">·</span>
+      <span class="sb-speed">↓ {{ fmtBytes(totalSpeed) }}/s</span>
+      <span class="sb-sep">·</span>
+      <span>已下载 {{ fmtBytes(totalDownloaded) }} / {{ fmtBytes(totalSize) }}</span>
+    </footer>
 
-    <el-empty v-if="!filtered.length" description="暂无任务，在消息页选择媒体下载" />
-
-    <div v-for="t in filtered" :key="t.id" class="task-card card">
-      <!-- 4 段式主行：勾选 | 名+状态 | 进度条 | 速率 | 按钮（按钮固定最右） -->
-      <div class="trow">
-        <el-checkbox
-          class="pick"
-          :model-value="selected.has(t.id)"
-          @change="toggleSelect(t.id)"
-        />
-        <div class="tname-wrap">
-          <span class="tname">{{ taskName(t) }}</span>
-          <el-tag size="small" :type="tagType(t.status)" effect="light">{{ statusText(t.status) }}</el-tag>
+    <!-- 删除确认对话框（复用现有） -->
+    <el-dialog v-model="delDialog.show" class="del-dialog" width="420px" :show-close="true" align-center>
+      <template #header>
+        <div class="del-header">
+          <TriangleAlert :size="18" class="del-warn-icon" />
+          <span>{{ delDialog.title }}</span>
         </div>
-
-        <div class="tprog-wrap">
-          <el-progress
-            v-if="t.totalSize > 0"
-            :percentage="percent(t)"
-            :status="progressStatus(t.status)"
-            :stroke-width="4"
-            :show-text="false"
-          />
-        </div>
-
-        <span class="tSpeed">{{ speedText(t) }}</span>
-
-        <div class="tactions">
-          <el-button class="act-btn" size="small" :disabled="!canStart(t.status)" @click="resume(t)">开始</el-button>
-          <el-button class="act-btn" size="small" :disabled="t.status !== 'running'" @click="pause(t)">暂停</el-button>
-          <el-button class="act-btn danger" size="small" @click="remove(t)">删除</el-button>
-          <el-button class="act-btn" size="small" :disabled="!t.files?.length" @click="expanded = expanded === t.id ? '' : t.id">{{ expanded === t.id ? '收起' : '详情' }}</el-button>
+      </template>
+      <div class="del-body">
+        <p class="del-msg">{{ delDialog.message }}</p>
+        <div class="del-file-opt">
+          <span class="del-opt-label">同时删除已下载文件</span>
+          <el-radio-group v-model="delDialog.deleteFiles">
+            <el-radio :value="true">是</el-radio>
+            <el-radio :value="false">否</el-radio>
+          </el-radio-group>
         </div>
       </div>
+      <template #footer>
+        <el-button @click="delDialog.show = false">取消</el-button>
+        <el-button type="danger" :loading="delDialog.loading" @click="confirmDelete">删除</el-button>
+      </template>
+    </el-dialog>
 
-      <!-- 第二行 meta + 错误 + 展开详情（不影响上方按钮位置） -->
-      <div class="tmeta muted">
-        <span>{{ t.files?.length || 0 }} 个文件</span>
-        <span v-if="t.totalSize">· {{ fmtBytes(t.downloaded) }} / {{ fmtBytes(t.totalSize) }}</span>
-        <span>· {{ fmtTime(t.createdAt) }}</span>
-        <span class="mono">· #{{ t.id.slice(0, 8) }}</span>
-      </div>
-
-      <div v-if="t.error" class="terror"><TriangleAlert :size="14" /> {{ t.error }}</div>
-
-      <div v-if="expanded === t.id && t.files?.length" class="files">
-        <div v-for="f in t.files" :key="f.key" class="file-row">
-          <span class="fstatus" :class="f.status"><component :is="fileIcon(f.status)" :size="14" /></span>
-          <span class="fname" :title="f.path || fileLabel(f)">{{ f.name || fileLabel(f) }}</span>
-          <span v-if="firstLine(f.caption)" class="fcap" :title="f.caption">
-            <MessageSquare :size="11" /> {{ firstLine(f.caption) }}
-          </span>
-          <span v-if="f.size > 0" class="fsize muted">{{ fmtBytes(f.downloaded) }} / {{ fmtBytes(f.size) }}</span>
-          <span v-else-if="f.status === 'done'" class="fsize muted">已完成（已存在）</span>
-          <span v-else-if="f.status === 'pending'" class="fsize muted">排队中</span>
-          <span v-if="f.error" class="ferr" :title="f.error">失败</span>
+    <!-- 重命名对话框：双击文件名触发，默认填 caption 首行 -->
+    <el-dialog v-model="renameDialog.show" class="del-dialog" width="460px" :show-close="true" align-center
+      @open="focusRenameInput">
+      <template #header>
+        <div class="del-header">
+          <Pencil :size="18" class="del-warn-icon" style="color: var(--accent)" />
+          <span>重命名文件</span>
         </div>
+      </template>
+      <div class="del-body">
+        <p class="del-msg">消息 #{{ renameDialog.msgId }} — 输入新文件名（不含消息ID前缀，后端会自动添加）：</p>
+        <el-input v-model="renameDialog.name" type="textarea" :autosize="{ minRows: 1, maxRows: 8 }"
+          placeholder="输入文件名" :disabled="renameDialog.loading"
+          @keydown.enter.prevent="confirmRename"
+          @keydown="onRenameKeydown" ref="renameInput" />
       </div>
-    </div>
+      <template #footer>
+        <el-button @click="renameDialog.show = false">取消</el-button>
+        <el-button type="primary" :loading="renameDialog.loading" @click="confirmRename">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { useAppStore } from '../stores/app'
-import { Clock, Download, Pause, Check, X, TriangleAlert, MessageSquare } from 'lucide-vue-next'
+import {
+  Clock, Download, Pause, Check, X, TriangleAlert, MessageSquare,
+  Play, Trash2, Settings2, Zap, Moon, ChevronDown, ChevronRight, Pencil,
+} from 'lucide-vue-next'
 
 const store = useAppStore()
-const expanded = ref('')
 
-// --- 选中态：按 id 跟踪，切过滤/SSE 都不丢 ---
-const selected = reactive(new Set())
-
-// 速率显示：用后端 SSE 推送的 t.speed（task 级聚合，滑动平均），比前端按
-// SSE 节流差值算更准。running 显示速度，否则显示已下/总大小。
-function speedText(t) {
-  if (t.status !== 'running') {
-    return t.totalSize > 0 ? `${fmtBytes(t.downloaded)} / ${fmtBytes(t.totalSize)}` : ''
+// --- 侧边栏宽度（可拖拽，持久化）---
+const SIDEBAR_KEY = 'tmm.sidebarWidth'
+const sidebarWidth = ref(parseInt(localStorage.getItem(SIDEBAR_KEY) || '160'))
+function startSidebarResize(e) {
+  e.preventDefault()
+  const startX = e.clientX
+  const startW = sidebarWidth.value
+  const onMove = (ev) => {
+    const nw = Math.max(120, Math.min(300, startW + ev.clientX - startX))
+    sidebarWidth.value = nw
   }
-  return t.speed > 0 ? `${fmtBytes(t.speed)}/s` : '—'
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth.value))
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
 }
 
-// --- 过滤：底层是 6 状态集合，默认全选 = 显示全部 ---
-const filterStatuses = reactive(new Set(['pending', 'running', 'paused', 'done', 'failed', 'interrupted']))
+// --- 拍平文件行：每个 file 一行，携带所属 task 引用 ---
+// pending 文件（排队中，Limit 并发未轮到）预填时 fromName/name 为空，
+// 从同 task 其他已解析文件继承 fromName，保证归入正确来源分组。
+const rows = computed(() => {
+  const out = []
+  for (const t of store.tasks) {
+    // 找同 task 第一个有 fromName/caption 的文件作为继承源
+    const fallbackFrom = (t.files || []).find(f => f.fromName)
+    const fallbackCaption = (t.files || []).find(f => f.caption)
+    for (const f of (t.files || [])) {
+      out.push({
+        rowId: t.id + '/' + f.key,
+        taskId: t.id,
+        task: t,
+        file: {
+          ...f,
+          fromName: f.fromName || (fallbackFrom ? fallbackFrom.fromName : ''),
+          caption: f.caption || (fallbackCaption ? fallbackCaption.caption : ''),
+        },
+      })
+    }
+  }
+  return out
+})
 
-// 状态归并 4 组（UI 展示用）+ 全部
-const statusGroups = [
-  { label: '全部', statuses: ['pending', 'running', 'paused', 'done', 'failed', 'interrupted'] },
-  { label: '进行中', statuses: ['pending', 'running'] },
-  { label: '已完成', statuses: ['done'] },
-  { label: '已暂停', statuses: ['paused'] },
-  { label: '失败', statuses: ['failed', 'interrupted'] },
+// --- 侧边栏筛选：三个独立维度，叠加生效 ---
+const statusFilter = ref('all')   // all | downloading | done | paused | failed
+const sourceFilter = ref('')      // fromName 字符串，空=全部
+const activityFilter = ref('')    // active | inactive | ''(全部)
+
+const fileStatusMap = {
+  pending: 'paused', running: 'downloading', done: 'done', failed: 'failed',
+}
+function rowStatus(file) {
+  return fileStatusMap[file.status] || file.status
+}
+
+const filteredRows = computed(() => {
+  return rows.value.filter((r) => {
+    // 状态维度
+    if (statusFilter.value !== 'all') {
+      const s = rowStatus(r.file)
+      if (statusFilter.value === 'downloading' && s !== 'downloading') return false
+      if (statusFilter.value === 'done' && s !== 'done') return false
+      if (statusFilter.value === 'paused' && s !== 'paused') return false
+      if (statusFilter.value === 'failed' && s !== 'failed') return false
+    }
+    // 来源维度
+    if (sourceFilter.value && (r.file.fromName || '') !== sourceFilter.value) return false
+    // 活动维度
+    if (activityFilter.value === 'active' && !(r.task.status === 'running' && r.task.speed > 0)) return false
+    if (activityFilter.value === 'inactive' && (r.task.status === 'running' && r.task.speed > 0)) return false
+    return true
+  })
+})
+
+// --- 分组：按 fromName 归组，保留首次出现顺序 ---
+const groupedRows = computed(() => {
+  const map = new Map()
+  for (const r of filteredRows.value) {
+    const src = r.file.fromName || ''
+    if (!map.has(src)) {
+      map.set(src, { source: src, rows: [], downloaded: 0, size: 0, speed: 0 })
+    }
+    const g = map.get(src)
+    g.rows.push(r)
+    g.downloaded += r.file.downloaded || 0
+    g.size += r.file.size || 0
+    // 聚合速率：同来源下不同 task 的 speed 之和（去重 taskId）
+  }
+  // 聚合 speed：按 taskId 去重后求和
+  for (const g of map.values()) {
+    const taskSpeeds = new Map()
+    for (const r of g.rows) {
+      if (r.task.status === 'running' && !taskSpeeds.has(r.taskId)) {
+        taskSpeeds.set(r.taskId, r.task.speed || 0)
+      }
+    }
+    g.speed = [...taskSpeeds.values()].reduce((a, b) => a + b, 0)
+  }
+  return [...map.values()]
+})
+
+// --- 侧边栏分类统计 ---
+const statusCats = computed(() => [
+  { key: 'all', label: '全部', count: rows.value.length, icon: null },
+  { key: 'downloading', label: '下载中', count: rows.value.filter(r => rowStatus(r.file) === 'downloading').length, icon: Download },
+  { key: 'done', label: '已完成', count: rows.value.filter(r => rowStatus(r.file) === 'done').length, icon: Check },
+  { key: 'paused', label: '已暂停', count: rows.value.filter(r => rowStatus(r.file) === 'paused').length, icon: Pause },
+  { key: 'failed', label: '失败', count: rows.value.filter(r => rowStatus(r.file) === 'failed').length, icon: X },
+])
+
+const sourceCats = computed(() => {
+  const map = new Map()
+  for (const r of rows.value) {
+    const src = r.file.fromName || ''
+    if (!src) continue // 空来源不作为独立分类（避免和「全部」的 sourceFilter='' 冲突）
+    map.set(src, (map.get(src) || 0) + 1)
+  }
+  return [...map.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+})
+
+const activeCount = computed(() => rows.value.filter(r => r.task.status === 'running' && r.task.speed > 0).length)
+const inactiveCount = computed(() => rows.value.length - activeCount.value)
+
+// --- 折叠分组 ---
+const collapsedGroups = reactive(new Set(JSON.parse(localStorage.getItem('tmm.collapsedGroups') || '[]')))
+function toggleGroup(src) {
+  if (collapsedGroups.has(src)) collapsedGroups.delete(src)
+  else collapsedGroups.add(src)
+  localStorage.setItem('tmm.collapsedGroups', JSON.stringify([...collapsedGroups]))
+}
+
+// --- 列配置（宽度 + 顺序 + 显隐，全部持久化）---
+// 优先级：用户默认(DEFAULT_KEY) > 普通配置(COLS_KEY) > 内置默认
+const COLS_KEY = 'tmm.taskColumns'
+const DEFAULT_KEY = 'tmm.taskColumnsDefault'
+const builtinDefaults = [
+  { key: 'name', label: '文件名', width: 0, visible: true },
+  { key: 'msgid', label: '消息ID', width: 80, visible: true },
+  { key: 'source', label: '来源', width: 130, visible: false },  // 分组名已是来源，默认隐藏
+  { key: 'note', label: '备注', width: 180, visible: true },
+  { key: 'size', label: '大小', width: 80, visible: true },
+  { key: 'progress', label: '进度', width: 180, visible: true },
+  { key: 'downloaded', label: '已下载', width: 130, visible: true },
+  { key: 'status', label: '状态', width: 70, visible: true },
 ]
-
-function countByGroup(g) {
-  if (g.label === '全部') return store.tasks.length
-  return store.tasks.filter((t) => g.statuses.includes(t.status)).length
+function loadColumns(saved) {
+  if (!saved || !saved.order) return [...builtinDefaults]
+  const byKey = Object.fromEntries(builtinDefaults.map(d => [d.key, d]))
+  return saved.order
+    .filter(k => byKey[k])
+    .map(k => ({ ...byKey[k], width: saved.widths?.[k] ?? byKey[k].width, visible: saved.visible?.[k] ?? byKey[k].visible }))
+    .concat(builtinDefaults.filter(d => !saved.order.includes(d.key)))
 }
-function isGroupActive(g) {
-  return g.statuses.every((s) => filterStatuses.has(s))
-}
-function toggleGroup(g) {
-  if (isGroupActive(g)) g.statuses.forEach((s) => filterStatuses.delete(s))
-  else g.statuses.forEach((s) => filterStatuses.add(s))
-}
-
-// --- 过滤后的任务列表（保持 createdAt 倒序）---
-const filtered = computed(() =>
-  store.tasks
-    .filter((t) => filterStatuses.has(t.status))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-)
-
-// 开始按钮可用状态：pending/paused/failed/interrupted/done 都能开始（done 重跑）
-function canStart(s) {
-  return ['pending', 'paused', 'failed', 'interrupted', 'done'].includes(s)
-}
-
-// --- 全选 / 已选计数 ---
-const allInViewSelected = computed(
-  () => filtered.value.length > 0 && filtered.value.every((t) => selected.has(t.id))
-)
-const someInViewSelected = computed(
-  () => filtered.value.some((t) => selected.has(t.id)) && !allInViewSelected.value
-)
-const selectedCountInView = computed(
-  () => filtered.value.filter((t) => selected.has(t.id)).length
-)
-function toggleSelect(id) {
-  if (selected.has(id)) selected.delete(id)
-  else selected.add(id)
-}
-function toggleSelectAllInView(checked) {
-  const ids = filtered.value.map((t) => t.id)
-  if (checked) ids.forEach((id) => selected.add(id))
-  else ids.forEach((id) => selected.delete(id))
+const columns = reactive(loadColumns(
+  JSON.parse(localStorage.getItem(DEFAULT_KEY) || 'null') ||
+  JSON.parse(localStorage.getItem(COLS_KEY) || 'null')
+))
+const visibleColumns = computed(() => columns.filter(c => c.visible))
+const configurableColumns = computed(() => columns.filter(c => c.key !== 'name')) // 文件名始终显示
+function col(key) { return columns.find(c => c.key === key) || { visible: true, width: 0 } }
+const colSettingsOpen = ref(false)
+function saveColumns() {
+  localStorage.setItem(COLS_KEY, JSON.stringify({
+    order: columns.map(c => c.key),
+    widths: Object.fromEntries(columns.map(c => [c.key, c.width])),
+    visible: Object.fromEntries(columns.map(c => [c.key, c.visible])),
+  }))
 }
 
-// --- 快捷数量（按钮 disabled 用）---
-const countDone = computed(() => store.tasks.filter((t) => t.status === 'done').length)
-const countFailedInterrupted = computed(
-  () => store.tasks.filter((t) => t.status === 'failed' || t.status === 'interrupted').length
-)
+// --- 列宽拖拽 ---
+const dragCol = ref(null) // 正在拖拽宽度的列 key
+const dragX = ref(0)       // 拖拽中鼠标 x 坐标（用于显示指示线）
+function startColResize(key, e) {
+  e.preventDefault()
+  e.stopPropagation()
+  const startX = e.clientX
+  const c = col(key)
+  const startWidth = c.width || 100
+  dragCol.value = key
+  dragX.value = e.clientX
+  const onMove = (ev) => {
+    const delta = ev.clientX - startX
+    const nw = Math.max(50, startWidth + delta)
+    c.width = nw
+    dragX.value = ev.clientX
+  }
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    dragCol.value = null
+    dragX.value = 0
+    saveColumns()
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
 
-// --- 批量动作 ---
-async function batchPause() {
-  const ids = [...selected]
-  if (!ids.length) return
+// --- 列顺序拖拽（HTML5 drag-drop）---
+const dragOrderKey = ref(null)
+function onColDragStart(key) { dragOrderKey.value = key }
+function onColDrop(targetKey) {
+  if (!dragOrderKey.value || dragOrderKey.value === targetKey) return
+  const from = columns.findIndex(c => c.key === dragOrderKey.value)
+  const to = columns.findIndex(c => c.key === targetKey)
+  if (from < 0 || to < 0) return
+  const [moved] = columns.splice(from, 1)
+  columns.splice(to, 0, moved)
+  dragOrderKey.value = null
+  saveColumns()
+}
+// 拖到末尾：把拖拽列移到 columns 数组最后
+function onColDropEnd() {
+  if (!dragOrderKey.value) return
+  const from = columns.findIndex(c => c.key === dragOrderKey.value)
+  if (from < 0) return
+  const [moved] = columns.splice(from, 1)
+  columns.push(moved)
+  dragOrderKey.value = null
+  saveColumns()
+}
+// 列设置 popover 里的上下移动按钮（不依赖 HTML5 drag）
+function moveColumn(key, dir) {
+  const i = columns.findIndex(c => c.key === key)
+  const j = i + dir
+  if (i < 0 || j < 0 || j >= columns.length) return
+  const [moved] = columns.splice(i, 1)
+  columns.splice(j, 0, moved)
+  saveColumns()
+}
+// 右键表头：弹输入框设列宽（px）。输入 0 = 自适应弹性。
+async function promptColWidth(key, currentWidth) {
   try {
-    await store.batchAction(ids, 'pause')
-    selected.clear()
-  } catch (e) { ElMessage.error(e.message) }
+    const { value } = await ElMessageBox.prompt(
+      `输入列宽（px），0 = 自适应弹性。当前：${currentWidth || '自适应'}`,
+      '调整列宽',
+      { confirmButtonText: '设置', cancelButtonText: '取消', inputValue: String(currentWidth || 0) },
+    )
+    const w = parseInt(value)
+    if (isNaN(w) || w < 0) { ElMessage.error('请输入非负整数'); return }
+    col(key).width = w
+    saveColumns()
+    ElMessage.success(w === 0 ? '已设为自适应' : `已设为 ${w}px`)
+  } catch { /* 用户取消 */ }
 }
-async function batchStart() {
-  const ids = [...selected]
-  if (!ids.length) return
-  try {
-    const r = await store.batchAction(ids, 'resume')
-    reportFailures(r, ids.length)
-    selected.clear()
-  } catch (e) { ElMessage.error(e.message) }
+// 把当前列配置（顺序+宽度+显隐）存为用户默认
+function saveAsDefault() {
+  localStorage.setItem(DEFAULT_KEY, localStorage.getItem(COLS_KEY) || JSON.stringify({
+    order: columns.map(c => c.key),
+    widths: Object.fromEntries(columns.map(c => [c.key, c.width])),
+    visible: Object.fromEntries(columns.map(c => [c.key, c.visible])),
+  }))
+  ElMessage.success('已存为默认')
 }
-async function batchDelete() {
-  const ids = [...selected]
-  if (!ids.length) return
-  try {
-    await ElMessageBox.confirm(`确定删除选中的 ${ids.length} 条任务吗？（磁盘文件保留）`, '批量删除', {
-      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
-    })
-  } catch { return }
-  try {
-    const r = await store.batchAction(ids, 'delete')
-    removeDeletedFromStore(r)
-    selected.clear()
-  } catch (e) { ElMessage.error(e.message) }
-}
-
-// --- 快捷动作（按状态批量，不经 selected）---
-async function clearCompleted() {
-  const ids = store.tasks.filter((t) => t.status === 'done').map((t) => t.id)
-  if (!ids.length) return
-  try {
-    await ElMessageBox.confirm(`确定清空 ${ids.length} 条已完成任务吗？（磁盘文件保留）`, '清空已完成', {
-      type: 'warning', confirmButtonText: '清空', cancelButtonText: '取消',
-    })
-  } catch { return }
-  try {
-    const r = await store.batchAction(ids, 'delete')
-    removeDeletedFromStore(r)
-    ElMessage.success('已清空')
-  } catch (e) { ElMessage.error(e.message) }
-}
-async function retryFailed() {
-  const ids = store.tasks.filter((t) => t.status === 'failed' || t.status === 'interrupted').map((t) => t.id)
-  if (!ids.length) return
-  try {
-    const r = await store.batchAction(ids, 'resume')
-    reportFailures(r, ids.length)
-  } catch (e) { ElMessage.error(e.message) }
+// 恢复到内置默认（清空用户默认 + 重置当前）
+function resetToDefault() {
+  localStorage.removeItem(COLS_KEY)
+  localStorage.removeItem(DEFAULT_KEY)
+  // 重置 columns 到 defaults
+  const defaults = [
+    { key: 'name', label: '文件名', width: 0, visible: true },
+    { key: 'msgid', label: '消息ID', width: 80, visible: true },
+    { key: 'source', label: '来源', width: 130, visible: false },
+    { key: 'note', label: '备注', width: 180, visible: true },
+    { key: 'size', label: '大小', width: 80, visible: true },
+    { key: 'progress', label: '进度', width: 180, visible: true },
+    { key: 'downloaded', label: '已下载', width: 130, visible: true },
+    { key: 'status', label: '状态', width: 70, visible: true },
+  ]
+  columns.splice(0, columns.length, ...defaults)
+  saveColumns()
+  ElMessage.success('已恢复默认')
 }
 
-// resume 可能部分失败（account 未登录等），统一提示失败项
+// 单元格内容渲染：按列 key 返回文件行的文本/组件
+function cellContent(file, key) {
+  switch (key) {
+    case 'name': return null // 特殊渲染（图标+文件名）
+    case 'msgid': return file.msgId ? `#${file.msgId}` : '—'
+    case 'source': return file.fromName || '—'
+    case 'note': return '' // 特殊渲染（caption）
+    case 'size': return file.size > 0 ? fmtBytes(file.size) : '—'
+    case 'progress': return null // 特殊渲染（进度条）
+    case 'downloaded': return file.size > 0 ? `${fmtBytes(file.downloaded)} / ${fmtBytes(file.size)}` : '—'
+    case 'status': return null // 特殊渲染（状态文字）
+    default: return ''
+  }
+}
+
+// --- 勾选（按 rowId 跟踪，切筛选不丢） ---
+const selected = reactive(new Set())
+const selectedTaskIds = computed(() => {
+  const ids = new Set()
+  for (const id of selected) {
+    const parts = id.split('/')
+    ids.add(parts[0])
+  }
+  return ids
+})
+const allSelected = computed(() => filteredRows.value.length > 0 && filteredRows.value.every(r => selected.has(r.rowId)))
+const someSelected = computed(() => filteredRows.value.some(r => selected.has(r.rowId)) && !allSelected.value)
+function toggleSelect(rowId) {
+  if (selected.has(rowId)) selected.delete(rowId)
+  else selected.add(rowId)
+}
+function toggleSelectAll(checked) {
+  const ids = filteredRows.value.map(r => r.rowId)
+  if (checked) ids.forEach(id => selected.add(id))
+  else ids.forEach(id => selected.delete(id))
+}
+
+// --- 删除对话框（复用现有逻辑） ---
+const delDialog = reactive({
+  show: false, title: '删除任务', message: '', deleteFiles: false, loading: false, pending: null,
+})
+function openDeleteDialog(title, message, action) {
+  delDialog.title = title
+  delDialog.message = message
+  delDialog.deleteFiles = false
+  delDialog.loading = false
+  delDialog.pending = action
+  delDialog.show = true
+}
+async function confirmDelete() {
+  if (!delDialog.pending) return
+  delDialog.loading = true
+  try {
+    await delDialog.pending(delDialog.deleteFiles)
+    delDialog.show = false
+    ElMessage.success('已删除')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    delDialog.loading = false
+  }
+}
+
+// --- 重命名：双击文件名触发，默认填 caption 首行 ---
+// Ctrl+A 在重命名输入框里只选中框内文本（阻止全选整个网页）
+const renameInput = ref(null)
+function onRenameKeydown(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault()
+    e.stopPropagation()
+    // 找到 el-input 内部的原生 textarea
+    const ta = e.target
+    if (ta && typeof ta.select === 'function') {
+      ta.select()
+    }
+  }
+}
+// 对话框打开后焦点设到输入框并全选，让 Ctrl+A 作用于 textarea 而非 document
+async function focusRenameInput() {
+  await nextTick()
+  await nextTick() // el-input 渲染需要两帧
+  const ta = document.querySelector('.del-dialog textarea')
+  if (ta) { ta.focus(); ta.select() }
+}
+
+const renameDialog = reactive({
+  show: false, name: '', msgId: 0, taskId: '', key: '', loading: false,
+})
+function openRename(r) {
+  // 判断是否已被重命名过：原始媒体文件名主体通常是纯数字（如 6298346497637359964）
+  const currentName = (r.file.name || '').replace(/^#\d+\s+/, '')
+  const baseName = currentName.replace(/\.[^.]+$/, '') // 去扩展名
+  const isRenamed = baseName && !/^\d+$/.test(baseName)
+
+  let defaultName
+  if (isRenamed) {
+    // 已重命名过：保留当前文件名（去 #msgId 前缀）
+    defaultName = currentName
+  } else {
+    // 未重命名：默认填完整 caption；caption 空则填当前文件名
+    defaultName = (r.file.caption || '').trim() || currentName
+  }
+  renameDialog.name = defaultName
+  renameDialog.msgId = r.file.msgId || 0
+  renameDialog.taskId = r.taskId
+  renameDialog.key = r.file.key
+  renameDialog.loading = false
+  renameDialog.show = true
+}
+async function confirmRename() {
+  // 文件名不能含换行符，多行文本的换行替换成空格
+  const cleanName = renameDialog.name.trim().replace(/[\r\n]+/g, ' ')
+  if (!cleanName) { ElMessage.error('文件名不能为空'); return }
+  renameDialog.loading = true
+  try {
+    await api.renameFile(renameDialog.taskId, renameDialog.key, cleanName)
+    renameDialog.show = false
+    ElMessage.success('已重命名')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    renameDialog.loading = false
+  }
+}
+function removeDeletedFromStore(r) {
+  const deleted = new Set((r?.results || []).filter(x => x.ok).map(x => x.id))
+  if (!deleted.size) return
+  store.tasks = store.tasks.filter(t => !deleted.has(t.id))
+}
 function reportFailures(r, total) {
-  const fails = (r?.results || []).filter((x) => !x.ok)
-  if (fails.length === 0) ElMessage.success(`已开始 ${total} 个任务`)
+  const fails = (r?.results || []).filter(x => !x.ok)
+  if (!fails.length) ElMessage.success(`已开始 ${total} 个任务`)
   else ElMessage.warning(`${total - fails.length}/${total} 成功，${fails.length} 个失败`)
 }
 
-// delete 后端不发 SSE（任务已无快照可推），前端按 batch 结果移除成功的 id
-function removeDeletedFromStore(r) {
-  const deleted = new Set((r?.results || []).filter((x) => x.ok).map((x) => x.id))
-  if (!deleted.size) return
-  store.tasks = store.tasks.filter((t) => !deleted.has(t.id))
+// --- 批量操作（勾选行→taskId 去重→batchAction） ---
+async function batchPause() {
+  const ids = [...selectedTaskIds.value]
+  if (!ids.length) return
+  try { await store.batchAction(ids, 'pause'); selected.clear() } catch (e) { ElMessage.error(e.message) }
+}
+async function batchStart() {
+  const ids = [...selectedTaskIds.value]
+  if (!ids.length) return
+  try { const r = await store.batchAction(ids, 'resume'); reportFailures(r, ids.length); selected.clear() } catch (e) { ElMessage.error(e.message) }
+}
+function batchDelete() {
+  const ids = [...selectedTaskIds.value]
+  if (!ids.length) return
+  openDeleteDialog('批量删除', `将删除选中的 ${ids.length} 个任务，下载记录将清除。`, async (deleteFiles) => {
+    const r = await store.batchAction(ids, 'delete', deleteFiles)
+    removeDeletedFromStore(r)
+    selected.clear()
+    return r
+  })
 }
 
-// --- 单条操作（保留现有，删除时同步清 selected）---
-async function pause(t) {
-  try { await api.pauseTask(t.id) } catch (e) { ElMessage.error(e.message) }
-}
-async function resume(t) {
-  try { await api.resumeTask(t.id); ElMessage.success('已开始') } catch (e) { ElMessage.error(e.message) }
-}
-async function remove(t) {
-  try {
-    await ElMessageBox.confirm('确定删除此任务？下载记录将清除（已下载文件保留）。', '删除任务', {
-      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
-    })
-  } catch { return }
-  try {
-    await api.deleteTask(t.id)
-    selected.delete(t.id)
-    store.tasks = store.tasks.filter((x) => x.id !== t.id)
-    ElMessage.success('已删除')
-  } catch (e) { ElMessage.error(e.message) }
-}
-
-// --- 格式化 helper（保留现有）---
-const percent = (t) => (t.totalSize > 0 ? Math.min(100, Math.round((t.downloaded / t.totalSize) * 100)) : 0)
-const taskName = (t) => {
-  // 跳过预填（排队中、无 fromName）的条目，找第一个有发送者名字的
-  if (t.files?.length) {
-    const named = t.files.find((f) => f.fromName)
-    if (named) return named.fromName
-    // 全是预填（都还没 OnAdd）→ 显示文件数 + 第一个的 msgId
-    const cnt = t.files.length
-    return t.files[0].msgId ? `${cnt} 个文件（从 #${t.files[0].msgId} 起）` : `${cnt} 个文件`
+// --- 底部状态栏聚合 ---
+const totalFiles = computed(() => rows.value.length)
+const runningCount = computed(() => rows.value.filter(r => rowStatus(r.file) === 'downloading').length)
+const totalSpeed = computed(() => {
+  // 按 task 去重求和
+  const seen = new Set()
+  let sum = 0
+  for (const t of store.tasks) {
+    if (t.status === 'running' && !seen.has(t.id)) { seen.add(t.id); sum += t.speed || 0 }
   }
-  return t.urls?.[0] || '下载任务'
-}
-function statusText(s) {
-  return { pending: '排队中', running: '下载中', paused: '已暂停', done: '已完成', failed: '失败', interrupted: '已中断' }[s] || s
-}
-const statusIconMap = { pending: Clock, running: Download, paused: Pause, done: Check, failed: X, interrupted: TriangleAlert }
-const fileIconMap = { pending: Clock, running: Download, done: Check, failed: X }
-function statusIcon(s) { return statusIconMap[s] || null }
-function fileIcon(s) { return fileIconMap[s] || null }
-function statusClass(s) { return `s-${s}` }
-function tagType(s) {
-  return { running: 'primary', done: 'success', failed: 'danger', paused: 'warning', interrupted: 'warning', pending: 'info' }[s] || 'info'
-}
-function progressStatus(s) {
-  if (s === 'done') return 'success'
-  if (s === 'failed') return 'exception'
-  return ''
-}
+  return sum
+})
+const totalDownloaded = computed(() => store.tasks.reduce((s, t) => s + (t.downloaded || 0), 0))
+const totalSize = computed(() => store.tasks.reduce((s, t) => s + (t.totalSize || 0), 0))
+
+// --- 格式化 helper ---
 function fmtBytes(n) {
   if (!n) return '0 B'
   const u = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -308,125 +721,286 @@ function fmtBytes(n) {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
   return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${u[i]}`
 }
-function fmtTime(t) {
-  if (!t) return ''
-  const d = new Date(t)
-  return d.toLocaleString('zh-CN', { hour12: false })
+const filePct = (f) => (f.size > 0 ? Math.min(100, Math.round((f.downloaded / f.size) * 100)) : 0)
+function groupPct(g) { return g.size > 0 ? Math.min(100, Math.round((g.downloaded / g.size) * 100)) : 0 }
+function fileStatusText(s) {
+  return { pending: '排队中', running: '下载中', done: '已完成', failed: '失败' }[s] || s
 }
-// 取消息文本首行，限 30 字（超出省略）。空文本返回空串，调用方据此决定是否显示。
+function progressStatus(s) {
+  if (s === 'done') return 'success'
+  if (s === 'failed') return 'exception'
+  return ''
+}
+const fileIconMap = { pending: Clock, running: Download, done: Check, failed: X }
+function fileIcon(s) { return fileIconMap[s] || null }
 function firstLine(text, max = 30) {
   if (!text) return ''
   const line = String(text).split(/\r?\n/)[0].trim()
   if (!line) return ''
   return line.length > max ? line.slice(0, max) + '…' : line
 }
-// 预填（排队中）的文件没有 name，显示占位标签
-function fileLabel(f) {
-  return f.msgId ? `消息 #${f.msgId}` : '排队中'
-}
+function fileLabel(f) { return f.msgId ? `消息 #${f.msgId}` : '排队中' }
 </script>
 
 <style scoped>
-/* --- 行 1：状态标签栏 + 快捷按钮 --- */
-.filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.status-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.stab {
-  padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
-  background: var(--bg-panel); color: var(--text-2); font-size: 13px; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 4px; transition: all .15s;
+/* === 整体布局：三栏 + 底部状态栏 === */
+.dl-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
-.stab:hover { border-color: var(--accent); }
-.stab.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-.stab .count { font-size: 12px; opacity: .8; }
-.quick-actions { display: flex; gap: 6px; }
-.qbtn {
-  padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
-  background: var(--bg-panel); color: var(--text-2); font-size: 13px; cursor: pointer;
-  transition: all .15s;
+.dl-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
-.qbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.qbtn.danger:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
-.qbtn:disabled { opacity: .45; cursor: not-allowed; }
 
-/* --- 行 2：批量工具栏 --- */
-.batch-bar {
+/* === 左侧边栏 === */
+.dl-sidebar {
+  flex: none;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* 侧边栏宽度拖拽手柄 */
+.sidebar-resize {
+  flex: none;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background .15s;
+}
+.sidebar-resize:hover { background: var(--accent); }
+.cat-section { display: flex; flex-direction: column; gap: 2px; }
+.cat-section + .cat-section { padding-top: 12px; border-top: 1px solid var(--border); }
+.cat-title {
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 0 8px 6px;
+}
+.cat-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: transparent;
+  color: var(--text-2); font-size: 13px; cursor: pointer;
+  transition: all .15s; text-align: left;
+}
+.cat-item:hover { background: var(--bg-hover); color: var(--text); }
+.cat-item.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 500; }
+.cat-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-count { font-size: 11px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.cat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: none; }
+.cat-item.active .cat-dot { background: var(--accent); }
+
+/* === 主区 === */
+.dl-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+}
+
+/* === 工具栏 === */
+.dl-toolbar {
+  flex: none;
   display: flex; align-items: center; gap: 12px;
-  padding: 8px 0; margin-bottom: 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
 }
-.sel-count { font-size: 13px; color: var(--text-2); }
-.batch-actions { display: flex; gap: 6px; }
-
+.toolbar-group { display: flex; align-items: center; gap: 4px; }
 .spacer { flex: 1; }
+.tool-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-panel);
+  color: var(--text-2); cursor: pointer; transition: all .15s;
+}
+.tool-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.tool-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.tool-btn.danger:hover:not(:disabled) { border-color: var(--red); color: var(--red); background: transparent; }
+.tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* --- 任务卡片：4 段式单行（勾选 | 名+状态 | 进度条 | 速率 | 按钮）---
-   段间靠 padding 留白自然分布，进度条 flex:1 撑满中间，按钮 margin-left:auto 推右。 */
-.task-card { margin-bottom: 6px; padding: 8px 12px !important; }
-.trow { display: flex; align-items: center; gap: 0; min-width: 0; }
-/* 多选框：垂直居中，覆盖 el-checkbox 默认 margin */
-.pick { flex: none; align-self: center; margin-right: 12px; }
-.pick :deep(.el-checkbox) { margin-right: 0; height: auto; }
-.pick :deep(.el-checkbox__label) { display: none; } /* 无文字，去掉占位 */
-/* 段间留白（无可见分割线，靠 padding 间距）*/
-.trow > .tname-wrap, .trow > .tprog-wrap, .trow > .tSpeed, .trow > .tactions {
-  padding-left: 14px;
-  min-width: 0;
+/* 列设置 popover */
+.col-settings { display: flex; flex-direction: column; gap: 8px; }
+.col-settings-title { font-size: 12px; font-weight: 600; color: var(--text-3); margin-bottom: 8px; }
+.col-settings :deep(.el-checkbox) { margin-right: 0; }
+.col-settings :deep(.el-checkbox__label) { font-size: 13px; }
+.col-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 0; }
+.col-arrows { display: flex; gap: 2px; }
+.col-arrow {
+  width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-panel); color: var(--text-2); font-size: 12px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
 }
-/* 第1段：任务名+状态标签（可收缩，窄屏省略）*/
-.tname-wrap { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; }
-.tname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-/* 第2段：进度条吃剩余空间，可收缩（min-width:0 允许窄屏压缩）*/
-.tprog-wrap { flex: 1 1 auto; min-width: 60px; }
-.tprog-wrap :deep(.el-progress) { width: 100%; }
-/* 第3段：速率/字节数，固定宽度不收缩，等宽避免跳动 */
-.tSpeed { flex: none; font-size: 11.5px; color: var(--text-2); width: 84px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-/* 第4段按钮：margin-left:auto 推到容器最右，flex:none 固定宽度 */
-.tactions { display: flex; flex-direction: row; gap: 4px; flex: none; align-items: center; margin-left: auto; }
+.col-arrow:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.col-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
+.col-settings-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.col-action-btn {
+  flex: 1; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-panel); color: var(--text-2); font-size: 12px; cursor: pointer;
+}
+.col-action-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-/* meta/错误/详情在主行下方，左缩进对齐任务名（避开多选框）*/
-.tmeta { font-size: 11px; margin-top: 4px; margin-left: 40px; display: flex; flex-wrap: wrap; gap: 5px; }
-.terror { margin-top: 4px; margin-left: 40px; color: var(--red); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
+/* === 表格区 === */
+.dl-table { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 
-.files { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
-.file-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
-.fstatus { width: 16px; display: inline-flex; align-items: center; justify-content: center; }
-.fstatus.pending { color: var(--text-3); }
-.fstatus.running { color: #3b82f6; }
-.fstatus.done { color: var(--green); }
-.fstatus.failed { color: var(--red); }
-.fname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 消息文本首行：紧跟文件名右侧（margin-left 造 5-10 字间距感），muted 灰，限宽省略 */
-.fcap { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: 24px; font-size: 10.5px; color: var(--text-3); max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fsize { flex: none; }
-.ferr { color: var(--red); flex: none; }
+/* 表头（sticky，高度与文件行一致 34px）*/
+.thead {
+  flex: none;
+  display: flex; align-items: center;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 2;
+  height: 34px;
+}
+.th {
+  font-size: 11.5px; font-weight: 600; color: var(--text-3);
+  padding: 0 8px; white-space: nowrap;
+  position: relative;
+  display: flex; align-items: center;
+  height: 34px;
+}
+.th-check { width: 40px; display: flex; justify-content: center; flex: none; }
+.th-flex { flex: 1; min-width: 0; }
+.th-num { justify-content: flex-start; text-align: left; }
+/* 列宽拖拽手柄：表头列之间的分割线，默认可见（浅色），hover 变蓝提示可拖拽。
+   命中区 8px（左右各 4px 跨列边界），中间 1px 实线视觉提示。 */
+.col-resize {
+  position: absolute; right: -4px; top: 4px; bottom: 4px;
+  width: 8px; cursor: col-resize; z-index: 3;
+  display: flex; justify-content: center;
+}
+.col-resize::before {
+  content: ''; width: 1px; height: 100%; background: var(--border);
+  transition: background .15s, width .15s;
+}
+.col-resize:hover::before, .col-resize:active::before {
+  background: var(--accent); width: 2px;
+}
+/* 拖拽列宽时：当前列高亮 + 全局指示竖线 */
+.th-dragging { background: var(--accent-soft) !important; }
+.resize-indicator {
+  position: fixed; top: 0; bottom: 0; width: 2px;
+  background: var(--accent); z-index: 9999; pointer-events: none;
+  box-shadow: 0 0 4px rgba(79,124,255,.4);
+}
+/* 列顺序拖拽时：其他列显示可放置提示 */
+.th-order-target { background: var(--bg-hover); }
+.th-order-target:hover { background: var(--accent-soft); }
+/* 末尾 drop zone：拖列时出现，放下列即移到最后 */
+.th-end-drop {
+  width: 36px; flex: none; display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--border); border-radius: var(--radius-sm);
+  margin-left: 4px; cursor: pointer;
+}
+.th-end-drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.drop-hint { font-size: 14px; color: var(--text-3); }
 
-/* 第4段：控制按钮——位置固定（flex: none 最右），透明底悬停浅灰，无填充色 */
-.tactions :deep(.act-btn) {
-  margin-left: 0 !important;
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  color: var(--text-2) !important;
-  font-weight: 500;
-  transition: all .12s;
+/* 列表区 */
+.tbody { flex: 1; overflow-y: auto; }
+
+/* 来源分组头：高度 ≥ 行高，聚合信息对齐表头列位置 */
+.group-head {
+  display: flex; align-items: center;
+  min-height: 34px;
+  background: var(--bg-panel);
+  border-bottom: 2px solid var(--border);
+  font-size: 12px; color: var(--text-2); cursor: pointer;
+  position: sticky; top: 0; z-index: 1;
 }
-/* 悬停才显示底色（浅灰）*/
-.tactions :deep(.act-btn:hover:not(.is-disabled)) {
-  background: var(--bg-hover) !important;
-  border-color: var(--border) !important;
-  color: var(--text-1) !important;
+.group-head:hover { background: var(--bg-hover); }
+.gh-fold { width: 40px; flex: none; display: flex; align-items: center; justify-content: center; }
+.gh-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+/* 分组头聚合标签：流式紧凑排列，不按列对齐 */
+.gh-tag {
+  flex: none; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums;
+  padding: 2px 6px; border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
-/* 删除按钮：文字保留红色提示危险，但仍无填充 */
-.tactions :deep(.act-btn.danger) {
-  color: var(--red) !important;
+.gh-tag + .gh-tag { margin-left: 2px; }
+.gh-pct-tag { color: var(--text-2); font-weight: 500; }
+.gh-speed { color: var(--accent); font-weight: 500; }
+
+/* 文件行 */
+.trow {
+  display: flex; align-items: center;
+  height: 34px;
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
 }
-.tactions :deep(.act-btn.danger:hover:not(.is-disabled)) {
-  background: var(--red) !important;
-  color: #fff !important;
-  border-color: var(--red) !important;
+.trow:hover { background: var(--bg-hover); }
+.trow.selected { background: var(--bg-active); }
+.td {
+  padding: 0 8px; font-size: 12.5px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden;
+  display: flex; align-items: center;
+  height: 34px;
 }
-/* disabled 透明度保留辨识 */
-.tactions :deep(.act-btn.is-disabled) {
-  opacity: .4;
-  cursor: not-allowed;
+.td-check { width: 40px; display: flex; justify-content: center; flex: none; }
+.td-name { flex: 1; min-width: 0; gap: 6px; color: var(--text); }
+.td-mono { font-family: var(--font-mono, ui-monospace, Consolas, monospace); color: var(--text-3); justify-content: center; }
+.td-source { overflow: hidden; }
+.td-note { overflow: hidden; }
+.td-num { justify-content: flex-start; text-align: left; font-variant-numeric: tabular-nums; }
+.td-progress { gap: 8px; }
+.td-status { justify-content: flex-start; }
+
+/* 文件名单元格内容 */
+.ficon { flex: none; }
+.ficon.pending { color: var(--text-3); }
+.ficon.running { color: var(--accent); }
+.ficon.done { color: var(--green); }
+.ficon.failed { color: var(--red); }
+.fname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; user-select: none; }
+.src-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; color: var(--text-3); }
+
+/* 进度单元格 */
+.td-progress :deep(.el-progress) { flex: 1; }
+.pct-text { width: 36px; text-align: left; font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--text-2); }
+
+/* 状态文字 */
+.fstat { font-size: 11.5px; font-weight: 500; }
+.fstat.pending { color: var(--text-3); }
+.fstat.running { color: var(--accent); }
+.fstat.done { color: var(--green); }
+.fstat.failed { color: var(--red); }
+
+/* === 底部状态栏 === */
+.dl-statusbar {
+  flex: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
+.sb-sep { color: var(--text-3); }
+.sb-speed { color: var(--accent); font-weight: 500; }
+
+/* === 删除对话框（复用现有样式） === */
+:deep(.del-dialog) { border-radius: var(--radius) !important; box-shadow: var(--shadow) !important; overflow: hidden; }
+:deep(.del-dialog .el-dialog__header) { padding: 16px 20px 8px; margin-right: 0; }
+:deep(.del-dialog .el-dialog__body) { padding: 8px 20px 16px; }
+:deep(.del-dialog .el-dialog__footer) { padding: 8px 20px 16px; }
+.del-header { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--text); }
+.del-warn-icon { color: var(--orange); flex: none; }
+.del-body { display: flex; flex-direction: column; gap: 14px; }
+.del-msg { margin: 0; font-size: 13.5px; color: var(--text-2); line-height: 1.5; }
+.del-file-opt {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; background: var(--bg-panel);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.del-opt-label { font-size: 13px; color: var(--text-2); }
+:deep(.del-file-opt .el-radio__inner) { width: 16px; height: 16px; }
+:deep(.del-file-opt .el-radio__label) { font-size: 13px; color: var(--text-2); }
+
+/* === checkbox 统一 === */
+:deep(.el-checkbox) { margin-right: 0; }
 </style>

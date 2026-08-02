@@ -4,6 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -127,8 +131,9 @@ func (m *taskManager) pause(id string) error {
 }
 
 // delete removes a task: cancels if running, dequeues if pending, then erases
-// it from the store. Downloaded files on disk are NOT touched.
-func (m *taskManager) delete(id string) error {
+// it from the store. When deleteFiles is true, also removes the downloaded
+// files on disk (final files, .tmp partials, and .tdlstate control files).
+func (m *taskManager) delete(id string, deleteFiles bool) error {
 	m.mu.Lock()
 	for i, qid := range m.queue {
 		if qid == id {
@@ -142,7 +147,86 @@ func (m *taskManager) delete(id string) error {
 	if isRunning {
 		cancel() // stop the in-flight download; run() will observe cancellation
 	}
+
+	// 先取 task 快照（store.delete 之后就没了），按需删磁盘文件
+	if deleteFiles {
+		if task, ok := m.srv.store.get(id); ok {
+			m.removeTaskFiles(task)
+		} else {
+			m.srv.log().Warn("deleteFiles: task not found in store before cleanup",
+				zap.String("task", id))
+		}
+	}
 	return m.srv.store.delete(id)
+}
+
+// removeTaskFiles deletes every file associated with a task from disk.
+//
+// 历史问题：FileEntry 在某些路径下（SkipSame 跳过 + resume 重跑）内存中变 nil，
+// Path 也常为空，不可靠。因此删除完全基于 task.Selected（创建时的原始数据，
+// 稳定不变）：对每个 (ChatID, msgID)，到 task 目录 glob `{chatID}_{msgID}_*`。
+// 文件名模板 {DialogID}_{MessageID}_{FileName}，ChatID 即文件名里的 DialogID。
+// 同时清理 .tmp 半成品和 .tdlstate 控制文件。Best-effort：缺失静默忽略。
+func (m *taskManager) removeTaskFiles(task *Task) {
+	task.mu.Lock()
+	dir := task.Opts.Dir
+	if dir == "" {
+		dir = m.srv.defaultDir
+	}
+	// 收集 (peerID, msgID) 对：优先 FileEntry.Key（若有），兜底 Selected
+	type pm struct{ peer, msg string }
+	var targets []pm
+	seen := map[string]bool{}
+	for _, f := range task.Files {
+		if f == nil || f.Key == "" {
+			continue
+		}
+		if seen[f.Key] {
+			continue
+		}
+		seen[f.Key] = true
+		parts := strings.SplitN(f.Key, "/", 2)
+		if len(parts) == 2 {
+			targets = append(targets, pm{parts[0], parts[1]})
+		}
+	}
+	for _, sel := range task.Selected {
+		for _, mid := range sel.MsgIDs {
+			k := sel.ChatID + "/" + strconv.Itoa(mid)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			targets = append(targets, pm{sel.ChatID, strconv.Itoa(mid)})
+		}
+	}
+	task.mu.Unlock()
+
+	m.srv.log().Info("removing task files",
+		zap.String("task", task.ID), zap.Int("targets", len(targets)), zap.String("dir", dir))
+	removed := 0
+	for _, t := range targets {
+		// glob {dir}/{peer}_{msg}_*
+		pattern := filepath.Join(dir, t.peer+"_"+t.msg+"_*")
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			m.srv.log().Warn("glob task files failed",
+				zap.String("task", task.ID), zap.String("pattern", pattern), zap.Error(err))
+			continue
+		}
+		for _, p := range matches {
+			if err := os.Remove(p); err != nil {
+				if !os.IsNotExist(err) {
+					m.srv.log().Warn("remove task file failed",
+						zap.String("task", task.ID), zap.String("path", p), zap.Error(err))
+				}
+				continue
+			}
+			removed++
+		}
+	}
+	m.srv.log().Info("task files removed",
+		zap.String("task", task.ID), zap.Int("removed", removed))
 }
 
 // BatchResult reports the outcome of one id in a batch operation.
@@ -154,8 +238,8 @@ type BatchResult struct {
 
 // Batch applies the same action (pause/resume/delete) to many task ids,
 // returning a per-id result. It is NOT transactional: a failure on one id
-// does not roll back the others.
-func (m *taskManager) Batch(ctx context.Context, ids []string, action string) []BatchResult {
+// does not roll back the others. deleteFiles only affects the delete action.
+func (m *taskManager) Batch(ctx context.Context, ids []string, action string, deleteFiles bool) []BatchResult {
 	results := make([]BatchResult, 0, len(ids))
 	for _, id := range ids {
 		var err error
@@ -165,7 +249,7 @@ func (m *taskManager) Batch(ctx context.Context, ids []string, action string) []
 		case "resume":
 			err = m.resume(ctx, id)
 		case "delete":
-			err = m.delete(id)
+			err = m.delete(id, deleteFiles)
 		default:
 			err = errors.Errorf("unknown action: %s", action)
 		}
@@ -273,8 +357,14 @@ func (m *taskManager) run(id string) {
 
 	// 立即注册 cancel，避免 pause/delete 在 cancel 注册窗口内找不到 task
 	// （原代码在 dl.Run 启动后才注册，用户在此窗口点 pause 会误判未运行）。
+	//
+	// logger 来源必须是 m.srv.log()：之前用 logctx.From(context.Background())
+	// 取到的是 Nop（Background 没 attach logger），导致整条 ctx 的 logger 是 Nop，
+	// 下游 iter/downloader 里 10+ 处 logctx.From(ctx) 全部静默，断点续传的
+	// 诊断日志（fresh download / resume partial / resume after false-complete）
+	// 写不出来，无法判断暂停后是真续传还是从头重下。
 	ctx, cancel := context.WithCancel(logctx.With(context.Background(),
-		logctx.From(context.Background()).Named("task").With(
+		m.srv.log().Named("task").With(
 			zap.String("task", id), zap.String("ns", task.Account))))
 	m.mu.Lock()
 	if existing, ok := m.cancels[id]; ok {
@@ -316,6 +406,10 @@ func (m *taskManager) run(id string) {
 	adapter.opts = opts
 
 	err := dl.Run(ctx, a.client, a.kvd, opts)
+
+	// 任务结束（完成/暂停/失败）一律停止速率采样并清零 Speed，
+	// 避免 goroutine 泄漏，也让非 running 态不显示陈旧速度。
+	adapter.stopSpeedSampler()
 
 	end := time.Now()
 	task.mu.Lock()

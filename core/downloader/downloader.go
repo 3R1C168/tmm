@@ -190,12 +190,28 @@ func (d *Downloader) resume(ctx context.Context, client *tg.Client, elem Elem, s
 // fetchPiece downloads a single piece [pr.Off, pr.End) and writes it at its
 // absolute offset. Offsets are aligned to partSize, satisfying Telegram's
 // precise-mode requirement (offset % 1024 == 0).
+//
+// Telegram's upload.getFile requires `limit` to be divisible by 4096 (the
+// minimum part granularity). The trailing piece of a file is almost never a
+// multiple of 4096, so we round the requested limit UP to the next 4096
+// boundary (capped at MaxPartSize). Telegram returns only the bytes that
+// actually exist, which we write at the exact offset — requesting a bit more
+// than the tail is harmless and avoids LIMIT_INVALID (rpc error code 400).
+const minPartAlign = 4096
+
 func (d *Downloader) fetchPiece(ctx context.Context, client *tg.Client, elem Elem, w *writeAt, pr pieceRange) error {
 	off := pr.Off
 	for off < pr.End {
 		limit := int64(MaxPartSize)
 		if rem := pr.End - off; rem < limit {
 			limit = rem
+		}
+		// 对齐到 4096 倍数：limit 向上取整，避免尾部非整分片触发 LIMIT_INVALID
+		if r := limit % minPartAlign; r != 0 {
+			limit += minPartAlign - r
+			if limit > MaxPartSize {
+				limit = MaxPartSize
+			}
 		}
 
 		res, err := client.UploadGetFile(ctx, &tg.UploadGetFileRequest{

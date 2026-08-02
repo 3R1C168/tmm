@@ -71,6 +71,11 @@ type Options struct {
 	// user-selected set of messages without writing an export file. It is merged
 	// with whatever URLs/Files produce.
 	Dialogs []*tmessage.Dialog
+
+	// FilenameMaxLen truncates the rendered filename (without extension) to this
+	// many bytes, to respect filesystem name limits. 0 = no truncation. Applied
+	// after template rendering, before appending .tmp.
+	FilenameMaxLen int
 }
 
 // runtime returns the effective runtime options, preferring explicitly-set

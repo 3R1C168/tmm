@@ -31,7 +31,7 @@ func TestBatchPause(t *testing.T) {
 		}))
 	}
 
-	res := s.tasks.Batch(context.Background(), []string{"a", "b", "c"}, "pause")
+	res := s.tasks.Batch(context.Background(), []string{"a", "b", "c"}, "pause", false)
 	require.Len(t, res, 3)
 	for _, r := range res {
 		require.True(t, r.OK, "id %s should be ok: %s", r.ID, r.Error)
@@ -47,7 +47,7 @@ func TestBatchPausePending(t *testing.T) {
 	require.NoError(t, s.store.upsert(&Task{ID: "p1", Status: StatusPending, Files: []*FileEntry{}}))
 	require.NoError(t, s.store.upsert(&Task{ID: "p2", Status: StatusPending, Files: []*FileEntry{}}))
 
-	res := s.tasks.Batch(context.Background(), []string{"p1", "p2"}, "pause")
+	res := s.tasks.Batch(context.Background(), []string{"p1", "p2"}, "pause", false)
 	require.Len(t, res, 2)
 	for _, r := range res {
 		require.True(t, r.OK)
@@ -61,7 +61,7 @@ func TestBatchDelete(t *testing.T) {
 	require.NoError(t, s.store.upsert(&Task{ID: "d1", Status: StatusDone, Files: []*FileEntry{}}))
 	require.NoError(t, s.store.upsert(&Task{ID: "d2", Status: StatusDone, Files: []*FileEntry{}}))
 
-	res := s.tasks.Batch(context.Background(), []string{"d1", "d2"}, "delete")
+	res := s.tasks.Batch(context.Background(), []string{"d1", "d2"}, "delete", false)
 	require.Len(t, res, 2)
 	for _, r := range res {
 		require.True(t, r.OK)
@@ -76,7 +76,7 @@ func TestBatchPartialFailure(t *testing.T) {
 	s := newBatchTestServer(t)
 	require.NoError(t, s.store.upsert(&Task{ID: "ok1", Status: StatusDone, Files: []*FileEntry{}}))
 
-	res := s.tasks.Batch(context.Background(), []string{"ok1", "ghost"}, "delete")
+	res := s.tasks.Batch(context.Background(), []string{"ok1", "ghost"}, "delete", false)
 	require.Len(t, res, 2)
 	require.True(t, res[0].OK)
 	require.False(t, res[1].OK)

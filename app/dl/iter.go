@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -287,16 +288,19 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 			zap.Int64("dialog_id", from.ID()),
 			zap.Int("message_id", message.ID),
 		)
-
 		return false, true
 	}
 
 	// process include and exclude
 	ext := filepath.Ext(item.Name)
 	if _, ok = i.include[ext]; len(i.include) > 0 && !ok {
+		logctx.From(ctx).Info("message skipped: not in include",
+			zap.Int("msg_id", message.ID), zap.String("ext", ext))
 		return false, true
 	}
 	if _, ok = i.exclude[ext]; len(i.exclude) > 0 && ok {
+		logctx.From(ctx).Info("message skipped: in exclude",
+			zap.Int("msg_id", message.ID), zap.String("ext", ext))
 		return false, true
 	}
 
@@ -319,12 +323,30 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 		if stat, err := os.Stat(filepath.Join(i.opts.Dir, toName.String())); err == nil {
 			if fsutil.GetNameWithoutExt(toName.String()) == fsutil.GetNameWithoutExt(stat.Name()) &&
 				stat.Size() == item.Size {
+				logctx.From(ctx).Info("message skipped: SkipSame (disk has same name+size)",
+					zap.Int("msg_id", message.ID), zap.String("name", toName.String()), zap.Int64("size", item.Size))
 				return false, true
 			}
 		}
 	}
 
-	filename := fmt.Sprintf("%s%s", toName.String(), tempExt)
+	// 截断文件名（不含扩展名）到 FilenameMaxLen 字节，防止超过文件系统名称限制。
+	// 保留扩展名，只截断主体部分。
+	rendered := toName.String()
+	if i.opts.FilenameMaxLen > 0 {
+		ext := filepath.Ext(rendered)
+		base := strings.TrimSuffix(rendered, ext)
+		if len(base) > i.opts.FilenameMaxLen {
+			base = base[:i.opts.FilenameMaxLen]
+			rendered = base + ext
+			logctx.From(ctx).Info("filename truncated",
+				zap.Int("msg_id", message.ID),
+				zap.Int("maxLen", i.opts.FilenameMaxLen),
+				zap.String("result", rendered))
+		}
+	}
+
+	filename := fmt.Sprintf("%s%s", rendered, tempExt)
 	path := filepath.Join(i.opts.Dir, filename)
 
 	// #113. If path contains dirs, create it. So now we support nested dirs.
@@ -434,10 +456,16 @@ func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from pee
 
 		// check if this grouped message is already finished (order-independent)
 		if i.isFinished(keyFromMsg(from.InputPeer(), msg)) {
+			logctx.From(ctx).Info("grouped message skipped: already finished",
+				zap.Int("msg_id", msg.ID))
 			continue
 		}
 
 		ret, skip := i.processSingle(ctx, msg, from, logicalPos)
+		if !ret && skip {
+			logctx.From(ctx).Info("grouped message skipped by processSingle",
+				zap.Int("msg_id", msg.ID))
+		}
 
 		// if processSingle encounters a fatal error (not just skip), propagate it
 		if !ret && !skip {

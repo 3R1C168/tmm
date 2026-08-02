@@ -33,8 +33,9 @@ export const api = {
   getTask: (id) => req('GET', `/api/tasks/${id}`),
   pauseTask: (id) => req('POST', `/api/tasks/${id}/pause`),
   resumeTask: (id) => req('POST', `/api/tasks/${id}/resume`),
-  deleteTask: (id) => req('DELETE', `/api/tasks/${id}`),
-  batchTasks: (ids, action) => req('POST', '/api/tasks/batch', { ids, action }),
+  deleteTask: (id, deleteFiles = false) => req('DELETE', `/api/tasks/${id}${deleteFiles ? '?deleteFiles=true' : ''}`),
+  renameFile: (taskId, key, name) => req('POST', `/api/tasks/${taskId}/rename`, { key, name }),
+  batchTasks: (ids, action, deleteFiles = false) => req('POST', '/api/tasks/batch', { ids, action, deleteFiles }),
 
   // accounts
   listAccounts: () => req('GET', '/api/accounts'),
