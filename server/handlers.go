@@ -147,10 +147,11 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 磁盘文件：可能是最终名（done）或 .tmp（进行中）
+	// 磁盘文件：可能是最终名（done）或 .tmp（进行中）。
+	// Opts.Dir 为空时用生效下载目录（含配置的 downloadDir），与 buildDlOptions 一致。
 	dir := task.Opts.Dir
 	if dir == "" {
-		dir = s.defaultDir
+		dir = s.downloadDirEffective()
 	}
 	oldPath := fe.Path
 	if oldPath == "" {

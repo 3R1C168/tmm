@@ -172,7 +172,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		logctx.From(ctx).Sugar().Infof("Serving web UI at http://%s", s.opts.Addr)
 		logctx.From(ctx).Sugar().Infof("Web root: %s", s.opts.WebRoot)
-		logctx.From(ctx).Sugar().Infof("Download dir: %s", s.defaultDir)
+		logctx.From(ctx).Sugar().Infof("Download dir: %s", s.downloadDirEffective())
 		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return

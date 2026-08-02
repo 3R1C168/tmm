@@ -38,6 +38,27 @@ func TestSettings_SnapshotIncludesNewFields(t *testing.T) {
 	require.Equal(t, "/dl", snap["downloadDir"])
 }
 
+// strptr returns a pointer to s for tests that exercise pointer-typed fields.
+func strptr(s string) *string { return &s }
+
+// 下载目录清除分支：update 收到 downloadDir 空字符串时必须清空设置值（回落到默认目录），
+// 而不是被 nil 判断跳过。UI 侧修复（Settings.vue 发空串而非省略该字段）依赖此分支。
+func TestSettings_UpdateDownloadDir_Clear(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	st := defaultSettings(path)
+	st.DownloadDir = `D:\dl\custom`
+	require.NoError(t, st.update(&updateSettingsRequest{DownloadDir: strptr("")}))
+	require.Equal(t, "", st.downloadDir())
+}
+
+// 下载目录设置分支：非空值（绝对路径）应被接受并保存。
+func TestSettings_UpdateDownloadDir_Set(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	st := defaultSettings(path)
+	require.NoError(t, st.update(&updateSettingsRequest{DownloadDir: strptr(`E:\dl\new`)}))
+	require.Equal(t, `E:\dl\new`, st.downloadDir())
+}
+
 func TestRenamePrefix(t *testing.T) {
 	cases := []struct {
 		force, channelOn bool

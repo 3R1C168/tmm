@@ -172,7 +172,9 @@ func (m *taskManager) removeTaskFiles(task *Task) {
 	task.mu.Lock()
 	dir := task.Opts.Dir
 	if dir == "" {
-		dir = m.srv.defaultDir
+		// 与 buildDlOptions 一致：Opts.Dir 为空时落到生效下载目录（含配置的 downloadDir），
+		// 而不是 srv.defaultDir——否则配置了自定义下载目录时文件删不到。
+		dir = m.srv.downloadDirEffective()
 	}
 	// 收集 (peerID, msgID) 对：优先 FileEntry.Key（若有），兜底 Selected
 	type pm struct{ peer, msg string }
@@ -225,6 +227,10 @@ func (m *taskManager) removeTaskFiles(task *Task) {
 
 // globTaskFiles recursively finds files matching <peer>_<msg>_* under dir,
 // covering the per-channel subdir layout (channelDir on) and flat layout.
+// 兼容文件名前缀（channelIdPrefix/msgIdPrefix）：前缀开启时磁盘文件形如
+// "#<频道ID> #<msgID> <peer>_<msg>_<原名>"，<peer>_<msg>_ 主名部分前有空格。
+// 因此除「开头匹配」外，还接受「空格后匹配」，且比纯 Contains 少误配
+// （other_<peer>_<msg>_x.mp4 这类文件名不会命中）。
 func globTaskFiles(dir, peer, msg string) []string {
 	prefix := peer + "_" + msg + "_"
 	var out []string
@@ -235,7 +241,8 @@ func globTaskFiles(dir, peer, msg string) []string {
 		if d.IsDir() {
 			return nil
 		}
-		if strings.HasPrefix(filepath.Base(p), prefix) {
+		base := filepath.Base(p)
+		if strings.HasPrefix(base, prefix) || strings.Contains(base, " "+prefix) {
 			out = append(out, p)
 		}
 		return nil
@@ -280,7 +287,8 @@ func (m *taskManager) Batch(ctx context.Context, ids []string, action string, de
 
 // resume re-enqueues a paused/failed/interrupted task. Partial downloads are
 // continued from .tdlstate files and the KV resume record.
-func (m *taskManager) resume(ctx context.Context, id string) error {	task, ok := m.srv.store.get(id)
+func (m *taskManager) resume(ctx context.Context, id string) error {
+	task, ok := m.srv.store.get(id)
 	if !ok {
 		return errors.New("task not found")
 	}

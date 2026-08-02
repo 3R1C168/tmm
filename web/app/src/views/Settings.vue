@@ -148,7 +148,7 @@ async function saveSettings() {
       msgIdPrefix: settings.value.msgIdPrefix,
       channelIdPrefix: settings.value.channelIdPrefix,
       channelDir: settings.value.channelDir,
-      downloadDir: settings.value.downloadDir || undefined,
+      downloadDir: settings.value.downloadDir || '',
       filenameMaxLen: settings.value.filenameMaxLen,
     })
     ElMessage.success('设置已保存')
