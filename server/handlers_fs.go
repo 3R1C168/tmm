@@ -20,7 +20,11 @@ func (s *Server) handlePickFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dir, err := dialog.Directory().Title("选择 Telegram Desktop 数据目录（tdata 所在目录）").Browse()
+	title := r.URL.Query().Get("title")
+	if title == "" {
+		title = "选择 Telegram Desktop 数据目录（tdata 所在目录）"
+	}
+	dir, err := dialog.Directory().Title(title).Browse()
 	if err == dialog.ErrCancelled {
 		writeJSON(w, http.StatusOK, map[string]any{"cancelled": true})
 		return

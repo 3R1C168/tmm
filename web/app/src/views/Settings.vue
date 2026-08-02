@@ -66,6 +66,20 @@
       </div>
       <div class="setrow">
         <div class="setinfo">
+          <div class="setname">文件名添加频道ID前缀</div>
+          <div class="setdesc muted">开启后，下载的文件名前会加上 <code class="code-hint">#2070986972</code> 前缀（频道ID + 空格）。与消息ID前缀同时开启时为 <code class="code-hint">#2070986972 #22713 video.mp4</code>，方便按频道查找文件。</div>
+        </div>
+        <el-switch v-model="settings.channelIdPrefix" @change="saveSettings" />
+      </div>
+      <div class="setrow">
+        <div class="setinfo">
+          <div class="setname">按频道存放下载文件</div>
+          <div class="setdesc muted">开启后，每个频道的文件存到下载目录下 <code class="code-hint">#频道ID 频道名</code> 子目录，频道名中的特殊字符会被自动清理。如：<code class="code-hint">downloads/#2070986972 资源社区/</code></div>
+        </div>
+        <el-switch v-model="settings.channelDir" @change="saveSettings" />
+      </div>
+      <div class="setrow">
+        <div class="setinfo">
           <div class="setname">文件名最大长度（字节）</div>
           <div class="setdesc muted">
             文件名（不含扩展名）超出此长度时自动截断。<br />
@@ -78,7 +92,16 @@
 
     <div class="card">
       <h3 class="sec">服务</h3>
-      <div class="kv"><span class="k">下载目录</span><span class="v mono">{{ store.config.downloadDir }}</span></div>
+      <div class="setrow">
+        <div class="setinfo">
+          <div class="setname">下载目录</div>
+          <div class="setdesc muted">下载文件存放的目录，默认在程序所在目录的 downloads 文件夹。按频道存放开关开启时，文件存到此目录下 #频道ID 频道名 子目录。</div>
+        </div>
+        <div class="dl-dir-row">
+          <el-input v-model="settings.downloadDir" placeholder="留空 = 默认目录（程序目录下 downloads）" clearable size="small" style="min-width: 220px" @change="saveSettings" />
+          <el-button size="small" @click="pickDownloadDir">选择文件夹</el-button>
+        </div>
+      </div>
       <div class="kv"><span class="k">前端目录</span><span class="v mono">{{ store.config.webRoot }}</span></div>
       <el-divider />
       <el-popconfirm title="确定停止服务吗？正在下载的任务会被暂停。" @confirm="shutdown">
@@ -98,7 +121,7 @@ import { Plus } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
-const settings = ref({ previewTakeout: false, cacheMaxMB: 5120, clearPreviewOnExit: true, msgIdPrefix: false, filenameMaxLen: 200 })
+const settings = ref({ previewTakeout: false, cacheMaxMB: 5120, clearPreviewOnExit: true, msgIdPrefix: false, channelIdPrefix: false, channelDir: false, downloadDir: '', filenameMaxLen: 200 })
 
 onMounted(async () => {
   try {
@@ -108,6 +131,9 @@ onMounted(async () => {
       cacheMaxMB: s.cacheMaxMB || 5120,
       clearPreviewOnExit: s.clearPreviewOnExit !== false,
       msgIdPrefix: s.msgIdPrefix === true,
+      channelIdPrefix: s.channelIdPrefix === true,
+      channelDir: s.channelDir === true,
+      downloadDir: s.downloadDir || '',
       filenameMaxLen: s.filenameMaxLen || 200,
     }
   } catch { /* use defaults */ }
@@ -120,9 +146,22 @@ async function saveSettings() {
       cacheMaxMB: settings.value.cacheMaxMB,
       clearPreviewOnExit: settings.value.clearPreviewOnExit,
       msgIdPrefix: settings.value.msgIdPrefix,
+      channelIdPrefix: settings.value.channelIdPrefix,
+      channelDir: settings.value.channelDir,
+      downloadDir: settings.value.downloadDir || undefined,
       filenameMaxLen: settings.value.filenameMaxLen,
     })
     ElMessage.success('设置已保存')
+  } catch (e) { ElMessage.error(e.message) }
+}
+
+async function pickDownloadDir() {
+  try {
+    const r = await api.pickFolder('选择下载目录')
+    if (!r.cancelled && r.path) {
+      settings.value.downloadDir = r.path
+      await saveSettings()
+    }
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -146,6 +185,7 @@ async function shutdown() {
 .kv { display: flex; gap: 12px; padding: 6px 0; font-size: 13px; }
 .kv .k { width: 90px; color: var(--text-2); flex: none; }
 .kv .v { word-break: break-all; }
+.dl-dir-row { display: flex; gap: 8px; align-items: center; }
 .setrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 0; }
 .setrow + .setrow { border-top: 1px solid var(--border); }
 .setinfo { flex: 1; min-width: 0; }

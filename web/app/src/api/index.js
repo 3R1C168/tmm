@@ -58,7 +58,7 @@ export const api = {
   updateSettings: (payload) => req('POST', '/api/settings', payload),
 
   // filesystem
-  pickFolder: () => req('POST', '/api/fs/pick-folder'),
+  pickFolder: (title) => req('POST', `/api/fs/pick-folder${title ? `?title=${encodeURIComponent(title)}` : ''}`),
   detectTdata: () => req('GET', '/api/fs/detect-tdata'),
 
   // auth
