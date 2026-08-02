@@ -95,14 +95,17 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRenameFile renames a downloaded file on disk and updates the store.
-// Body: { key, name }. key = "peerID/msgID", name = new filename body (may
-// include extension). If msgIdPrefix setting is on, "#msgId " is prepended
-// server-side (not included in the name field).
+// Body: { key, name, forceMsgIdPrefix? }. key = "peerID/msgID", name = new
+// filename body (may include extension). If msgIdPrefix setting is on, OR
+// forceMsgIdPrefix is true (批量重命名), "#msgId " is prepended server-side
+// (not included in the name field). 批量重命名调用方传 forceMsgIdPrefix=true
+// 强制加前缀，无论设置开关与否；这样多个文件套同一名字不会冲突。
 func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var req struct {
-		Key  string `json:"key"`
-		Name string `json:"name"`
+		Key                string `json:"key"`
+		Name               string `json:"name"`
+		ForceMsgIdPrefix   bool   `json:"forceMsgIdPrefix,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -176,32 +179,70 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 新文件名：如果开了 msgIdPrefix，前面加 #msgId
+	// 新文件名：批量重命名（forceMsgIdPrefix）或设置开启时，前面加 #msgId
 	newName := name
-	if s.settings.msgIdPrefix() {
+	needPrefix := req.ForceMsgIdPrefix || s.settings.msgIdPrefix()
+	if needPrefix {
 		newName = fmt.Sprintf("#%d %s", fe.MsgID, name)
 	}
 	oldBase := filepath.Base(oldPath)
 	newPath := filepath.Join(filepath.Dir(oldPath), newName)
 
 	// 如果旧文件是 .tmp，新文件也保留 .tmp
-	if strings.HasSuffix(oldBase, ".tmp") && !strings.HasSuffix(newName, ".tmp") {
+	isTmp := strings.HasSuffix(oldBase, ".tmp")
+	if isTmp && !strings.HasSuffix(newName, ".tmp") {
 		newPath += ".tmp"
 		newName += ".tmp"
 	}
 
-	// 重命名磁盘文件
-	if _, err := os.Stat(oldPath); err == nil {
-		if err := os.Rename(oldPath, newPath); err != nil {
-			task.mu.Unlock()
-			writeErr(w, http.StatusInternalServerError, errors.Wrap(err, "rename file"))
-			return
+	// 冲突兜底：目标已存在且不是源文件时，自动加 _2、_3… 后缀。
+	// 正常因 msgId 唯一不会触发；只在未开 msgIdPrefix 的单名批量场景兜底。
+	if _, err := os.Stat(newPath); err == nil && newPath != oldPath {
+		ext := filepath.Ext(newName)
+		base := strings.TrimSuffix(newName, ext)
+		if isTmp {
+			base = strings.TrimSuffix(base, ".tmp")
+		}
+		for i := 2; ; i++ {
+			cand := fmt.Sprintf("%s_%d", base, i)
+			if isTmp {
+				cand += ".tmp"
+			}
+			cand += ext
+			candPath := filepath.Join(filepath.Dir(oldPath), cand)
+			if _, err := os.Stat(candPath); err != nil {
+				newName = cand
+				newPath = candPath
+				break
+			}
+			// 目标恰好是源文件（重复重命名同一文件），不重命名直接用原名
+			if candPath == oldPath {
+				newName = cand
+				newPath = candPath
+				break
+			}
+			if i > 9999 { // 保险
+				task.mu.Unlock()
+				writeErr(w, http.StatusInternalServerError, errors.New("too many name conflicts"))
+				return
+			}
 		}
 	}
-	// 同步重命名 .tdlstate 控制文件
-	oldState := oldPath + ".tdlstate"
-	if _, err := os.Stat(oldState); err == nil {
-		_ = os.Rename(oldState, newPath+".tdlstate")
+
+	// 重命名磁盘文件
+	if newPath != oldPath {
+		if _, err := os.Stat(oldPath); err == nil {
+			if err := os.Rename(oldPath, newPath); err != nil {
+				task.mu.Unlock()
+				writeErr(w, http.StatusInternalServerError, errors.Wrap(err, "rename file"))
+				return
+			}
+		}
+		// 同步重命名 .tdlstate 控制文件
+		oldState := oldPath + ".tdlstate"
+		if _, err := os.Stat(oldState); err == nil {
+			_ = os.Rename(oldState, newPath+".tdlstate")
+		}
 	}
 
 	// 更新 store

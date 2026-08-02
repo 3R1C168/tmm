@@ -61,6 +61,13 @@
             <button class="tool-btn danger" :disabled="!selectedTaskIds.size" @click="batchDelete" title="删除">
               <Trash2 :size="16" />
             </button>
+            <button class="tool-btn" :disabled="!selected.size" @click="openBatchRename" title="批量重命名">
+              <Pencil :size="16" />
+            </button>
+            <button class="tool-btn" :class="{ active: multiSelectMode }" @click="toggleMultiSelectMode"
+              :title="multiSelectMode ? '多选模式已开启（点首行再点末行选区间，点空白清空）' : '多选模式'">
+              <CheckSquare :size="16" />
+            </button>
           </div>
           <div class="spacer" />
           <div class="toolbar-group">
@@ -135,11 +142,13 @@
                 <span class="gh-tag gh-pct-tag">{{ groupPct(g) }}%</span>
                 <span v-if="g.speed > 0" class="gh-tag gh-speed">↓ {{ fmtBytes(g.speed) }}/s</span>
               </div>
-              <!-- 文件行 -->
+              <!-- 文件行：点击行即选择，checkbox 仅显示选中状态 -->
               <div v-show="!collapsedGroups.has(g.source)" v-for="r in g.rows" :key="r.rowId"
-                class="trow" :class="{ selected: selected.has(r.rowId) }">
+                class="trow" :class="{ selected: selected.has(r.rowId), 'multi-mode': multiSelectMode }"
+                @click="onRowClick(r, $event)"
+                @contextmenu.prevent="onRowContextMenu(r, $event)">
                 <div class="td td-check">
-                  <el-checkbox :model-value="selected.has(r.rowId)" @change="toggleSelect(r.rowId)" />
+                  <el-checkbox :model-value="selected.has(r.rowId)" class="row-cb" />
                 </div>
                 <template v-for="c in visibleColumns" :key="c.key">
                   <!--文件名列：图标+文件名-->
@@ -147,7 +156,7 @@
                     :style="c.width > 0 ? { width: c.width + 'px', flex: 'none' } : {}">
                     <component :is="fileIcon(r.file.status)" :size="14" class="ficon" :class="r.file.status" />
                     <span class="fname" :title="r.file.name || fileLabel(r.file)"
-                      @dblclick.stop="openRename(r)">{{ r.file.name || fileLabel(r.file) }}</span>
+                      @dblclick.stop.prevent="openRenameSingle(r)">{{ r.file.name || fileLabel(r.file) }}</span>
                   </div>
                   <!--消息ID列-->
                   <div v-else-if="c.key === 'msgid'" class="td td-mono"
@@ -251,6 +260,40 @@
         <el-button type="primary" :loading="renameDialog.loading" @click="confirmRename">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量重命名对话框：勾选多个文件后点工具栏铅笔触发
+         强制加 #msgId 前缀防冲突；可用 {n} 占位符按选中顺序编号 -->
+    <el-dialog v-model="batchRenameDialog.show" class="del-dialog batch-rename-dialog" width="520px" :show-close="true" align-center
+      @open="focusBatchRenameInput">
+      <template #header>
+        <div class="del-header">
+          <Pencil :size="18" class="del-warn-icon" style="color: var(--accent)" />
+          <span>批量重命名（{{ batchRenameDialog.count }} 个文件）</span>
+        </div>
+      </template>
+      <div class="del-body">
+        <p class="del-msg">所有选中文件套用同一个新名称，自动加 <code>#消息ID</code> 前缀防止冲突。</p>
+        <p class="del-msg del-tip">可用 <code>&#123;n&#125;</code> 作为序号占位符（按选中顺序 1,2,3…），不用则所有文件同名。</p>
+        <el-input v-model="batchRenameDialog.name" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }"
+          placeholder="输入文件名（不含扩展名，后端按原文件补全）" :disabled="batchRenameDialog.loading"
+          @keydown.enter.prevent="confirmBatchRename"
+          @keydown="onRenameKeydown" ref="batchRenameInput" />
+        <p class="del-msg del-preview" v-if="batchRenamePreview">预览：{{ batchRenamePreview }}</p>
+      </div>
+      <template #footer>
+        <el-button @click="batchRenameDialog.show = false">取消</el-button>
+        <el-button type="primary" :loading="batchRenameDialog.loading" @click="confirmBatchRename">重命名</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 右键菜单：右键文件行弹出，根据选中态显示单文件/批量操作 -->
+    <div v-if="ctxMenu.show" class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+      @click.stop @contextmenu.prevent>
+      <button class="ctx-item" @click="ctxRename">
+        {{ ctxMenu.batch ? `批量重命名（${ctxMenu.count} 个文件）` : '重命名' }}
+      </button>
+      <button class="ctx-item" @click="ctxDelete">删除</button>
+    </div>
   </div>
 </template>
 
@@ -262,6 +305,7 @@ import { useAppStore } from '../stores/app'
 import {
   Clock, Download, Pause, Check, X, TriangleAlert, MessageSquare,
   Play, Trash2, Settings2, Zap, Moon, ChevronDown, ChevronRight, Pencil,
+  CheckSquare,
 } from 'lucide-vue-next'
 
 const store = useAppStore()
@@ -578,6 +622,116 @@ function toggleSelectAll(checked) {
   else ids.forEach(id => selected.delete(id))
 }
 
+// --- 多选模式开关 + 两击范围选择 ---
+// 默认关闭：点击 checkbox 单选切换（原行为）。
+// 开启后（无需 Shift）：
+//   第一次点击 → 清空选中，选中当前行作「首行」锚点
+//   第二次点击 → 选中首行到当前行之间所有行（含首尾），重置锚点准备下一轮
+//   再次点击 → 视为新首行，重新开始
+// 这样首行点击即时有选中指示，末行点击后整段高亮。
+const MULTI_KEY = 'tmm.multiSelectMode'
+const multiSelectMode = ref(localStorage.getItem(MULTI_KEY) === '1')
+function toggleMultiSelectMode() {
+  multiSelectMode.value = !multiSelectMode.value
+  localStorage.setItem(MULTI_KEY, multiSelectMode.value ? '1' : '0')
+  // 关闭多选时清空选中与锚点，避免残留
+  if (!multiSelectMode.value) {
+    selected.clear()
+    anchorRowId = null
+  }
+}
+let anchorRowId = null  // 多选模式首行锚点；null 表示下一次点击是新首行
+// 多选模式核心：两击范围选择
+function multiSelectPick(rowId) {
+  const ids = filteredRows.value.map(x => x.rowId)
+  if (anchorRowId == null) {
+    selected.clear()
+    selected.add(rowId)
+    anchorRowId = rowId
+    return
+  }
+  const a = ids.indexOf(anchorRowId)
+  const b = ids.indexOf(rowId)
+  if (a >= 0 && b >= 0) {
+    const [from, to] = a < b ? [a, b] : [b, a]
+    selected.clear()
+    for (let i = from; i <= to; i++) selected.add(ids[i])
+  } else {
+    selected.clear()
+    selected.add(rowId)
+  }
+  anchorRowId = null
+}
+// 统一行点击：单选模式 toggle 当前行；多选模式两击范围选择
+// e.detail > 1 表示双击的第二次 click，跳过避免干扰双击重命名
+function onRowClick(r, e) {
+  e.preventDefault()
+  if (e.detail > 1) return // 双击的后续 click，交给 dblclick 处理
+  if (multiSelectMode.value) {
+    multiSelectPick(r.rowId)
+  } else {
+    anchorRowId = r.rowId
+    toggleSelect(r.rowId)
+  }
+}
+
+// --- 右键菜单：右键文件行弹出，根据选中态显示单文件/批量重命名 ---
+const ctxMenu = reactive({ show: false, x: 0, y: 0, rowId: '', batch: false, count: 0 })
+function onRowContextMenu(r, e) {
+  // 右键的文件若不在选中集合里，先选中它（清空其他）——符合资源管理器习惯
+  if (!selected.has(r.rowId)) {
+    selected.clear()
+    selected.add(r.rowId)
+    anchorRowId = r.rowId
+  }
+  const isBatch = selected.size > 1
+  ctxMenu.rowId = r.rowId
+  ctxMenu.batch = isBatch
+  ctxMenu.count = selected.size
+  ctxMenu.x = e.clientX
+  ctxMenu.y = e.clientY
+  ctxMenu.show = true
+}
+function closeCtxMenu() { ctxMenu.show = false }
+function ctxRename() {
+  ctxMenu.show = false
+  if (ctxMenu.batch) {
+    openBatchRename()
+  } else {
+    // 单文件重命名：找到该行数据调 openRename
+    const row = rows.value.find(r => r.rowId === ctxMenu.rowId)
+    if (row) openRenameSingle(row)
+  }
+}
+function ctxDelete() {
+  ctxMenu.show = false
+  batchDelete()
+}
+
+// --- document 级空白点击清空（仅多选模式）---
+// 用户真实点击的 target 可靠（CUA 合成事件不可靠，但手动操作没问题）。
+// 点文件行、工具栏、对话框、侧边栏、表头、分组头、footer 等区域不清空。
+function onDocClick(e) {
+  // 关闭右键菜单（点菜单外任意处）
+  if (ctxMenu.show) {
+    if (!e.target || !e.target.closest || !e.target.closest('.ctx-menu')) {
+      ctxMenu.show = false
+    }
+  }
+  if (!multiSelectMode.value) return
+  const t = e.target
+  if (!t || !t.closest) return
+  const protectors = ['.trow', '.dl-toolbar', '.el-dialog', '.dl-sidebar', '.thead', '.group-head', '.dl-statusbar', '.ctx-menu']
+  for (const sel of protectors) {
+    if (t.closest(sel)) return
+  }
+  selected.clear()
+  anchorRowId = null
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('click', onDocClick, true)
+}
+
 // --- 删除对话框（复用现有逻辑） ---
 const delDialog = reactive({
   show: false, title: '删除任务', message: '', deleteFiles: false, loading: false, pending: null,
@@ -629,18 +783,16 @@ async function focusRenameInput() {
 const renameDialog = reactive({
   show: false, name: '', msgId: 0, taskId: '', key: '', loading: false,
 })
-function openRename(r) {
-  // 判断是否已被重命名过：原始媒体文件名主体通常是纯数字（如 6298346497637359964）
+function openRenameSingle(r) {
+  // 单文件重命名：判断是否已被重命名过（原始媒体文件名主体通常是纯数字）
   const currentName = (r.file.name || '').replace(/^#\d+\s+/, '')
   const baseName = currentName.replace(/\.[^.]+$/, '') // 去扩展名
   const isRenamed = baseName && !/^\d+$/.test(baseName)
 
   let defaultName
   if (isRenamed) {
-    // 已重命名过：保留当前文件名（去 #msgId 前缀）
     defaultName = currentName
   } else {
-    // 未重命名：默认填完整 caption；caption 空则填当前文件名
     defaultName = (r.file.caption || '').trim() || currentName
   }
   renameDialog.name = defaultName
@@ -663,6 +815,88 @@ async function confirmRename() {
     ElMessage.error(e.message)
   } finally {
     renameDialog.loading = false
+  }
+}
+
+// --- 批量重命名：勾选多个文件 → 工具栏铅笔 → 一个名字套到所有文件 ---
+// 强制加 #msgId 前缀（不依赖设置开关），{n} 占位符按选中顺序编号。
+const batchRenameInput = ref(null)
+const batchRenameDialog = reactive({
+  show: false, name: '', count: 0, entries: [], loading: false,
+})
+// 预览：用前两个选中文件的实际 msgId 演示最终名
+const batchRenamePreview = computed(() => {
+  if (!batchRenameDialog.name.trim() || !batchRenameDialog.entries.length) return ''
+  const tpl = batchRenameDialog.name.trim().replace(/[\r\n]+/g, ' ')
+  const hasN = tpl.includes('{n}')
+  const sample = batchRenameDialog.entries.slice(0, 2)
+  return sample.map((e, i) => {
+    const body = hasN ? tpl.replace(/\{n\}/g, String(i + 1)) : tpl
+    return `#${e.msgId} ${body}.<扩展名>`
+  }).join('，') + (batchRenameDialog.entries.length > 2 ? '，…' : '')
+})
+async function focusBatchRenameInput() {
+  await nextTick()
+  await nextTick()
+  const ta = document.querySelector('.batch-rename-dialog textarea')
+  if (ta) { ta.focus(); ta.select() }
+}
+function openBatchRename() {
+  // 把 selected（rowId = taskId/fileKey）解析回 (taskId, key, msgId, caption) 列表
+  const entries = []
+  for (const rowId of selected) {
+    const sep = rowId.indexOf('/')
+    if (sep < 0) continue
+    const taskId = rowId.slice(0, sep)
+    const key = rowId.slice(sep + 1)
+    const row = rows.value.find(r => r.rowId === rowId)
+    entries.push({ taskId, key, msgId: row?.file.msgId || 0, caption: row?.file.caption || '' })
+  }
+  if (!entries.length) { ElMessage.warning('请先勾选文件'); return }
+  batchRenameDialog.entries = entries
+  batchRenameDialog.count = entries.length
+  // 默认填充：跟单文件重命名一致用完整 caption；
+  // 同一 task（同消息来源）内文件填该 task 的完整 caption，跨 task 留空避免误导
+  const taskIds = new Set(entries.map(e => e.taskId))
+  let defaultName = ''
+  if (taskIds.size === 1) {
+    const caps = entries.map(e => (e.caption || '').trim()).filter(Boolean)
+    if (caps.length) defaultName = caps[0]
+  }
+  batchRenameDialog.name = defaultName
+  batchRenameDialog.loading = false
+  batchRenameDialog.show = true
+}
+async function confirmBatchRename() {
+  const tpl = batchRenameDialog.name.trim().replace(/[\r\n]+/g, ' ')
+  if (!tpl) { ElMessage.error('文件名不能为空'); return }
+  const hasN = tpl.includes('{n}')
+  batchRenameDialog.loading = true
+  let ok = 0, fail = 0
+  const fails = []
+  // 顺序执行：并发 rename 同一 task 可能争锁，且按序号顺序更直观
+  for (let i = 0; i < batchRenameDialog.entries.length; i++) {
+    const e = batchRenameDialog.entries[i]
+    const body = hasN ? tpl.replace(/\{n\}/g, String(i + 1)) : tpl
+    try {
+      await api.renameFile(e.taskId, e.key, body, /*forceMsgIdPrefix*/ true)
+      ok++
+    } catch (err) {
+      fail++
+      fails.push(`#${e.msgId}: ${err.message}`)
+    }
+  }
+  batchRenameDialog.loading = false
+  batchRenameDialog.show = false
+  selected.clear()
+  if (fail === 0) {
+    ElMessage.success(`已重命名 ${ok} 个文件`)
+  } else {
+    ElMessageBox.alert(
+      `${ok} 成功，${fail} 失败：\n${fails.join('\n')}`,
+      '批量重命名完成',
+      { confirmButtonText: '知道了' },
+    )
   }
 }
 function removeDeletedFromStore(r) {
@@ -931,16 +1165,22 @@ function fileLabel(f) { return f.msgId ? `消息 #${f.msgId}` : '排队中' }
   height: 34px;
   border-bottom: 1px solid var(--border);
   transition: background .1s;
+  cursor: default;
+  user-select: none; /* shift 范围选择时避免选中正文文字 */
 }
 .trow:hover { background: var(--bg-hover); }
 .trow.selected { background: var(--bg-active); }
+/* 多选模式：行体可点击，指针变 pointer 提示可点 */
+.trow.multi-mode { cursor: pointer; }
 .td {
   padding: 0 8px; font-size: 12.5px; color: var(--text-2);
   white-space: nowrap; overflow: hidden;
   display: flex; align-items: center;
   height: 34px;
 }
-.td-check { width: 40px; display: flex; justify-content: center; flex: none; }
+.td-check { width: 40px; display: flex; justify-content: center; flex: none; cursor: default; }
+/* el-checkbox 仅做显示，点击穿透到 td-check 的 mousedown 处理（避免 @change 反向触发竞态） */
+.td-check .row-cb { pointer-events: none; }
 .td-name { flex: 1; min-width: 0; gap: 6px; color: var(--text); }
 .td-mono { font-family: var(--font-mono, ui-monospace, Consolas, monospace); color: var(--text-3); justify-content: center; }
 .td-source { overflow: hidden; }
@@ -970,6 +1210,24 @@ function fileLabel(f) { return f.msgId ? `消息 #${f.msgId}` : '排队中' }
 .fstat.done { color: var(--green); }
 .fstat.failed { color: var(--red); }
 
+/* === 右键菜单 === */
+.ctx-menu {
+  position: fixed; z-index: 9999;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 4px 0;
+  user-select: none;
+}
+.ctx-item {
+  display: block; width: 100%; text-align: left;
+  padding: 8px 16px; font-size: 13px; color: var(--text);
+  background: none; border: none; cursor: pointer;
+}
+.ctx-item:hover { background: var(--bg-hover); color: var(--accent); }
+
 /* === 底部状态栏 === */
 .dl-statusbar {
   flex: none;
@@ -992,6 +1250,9 @@ function fileLabel(f) { return f.msgId ? `消息 #${f.msgId}` : '排队中' }
 .del-warn-icon { color: var(--orange); flex: none; }
 .del-body { display: flex; flex-direction: column; gap: 14px; }
 .del-msg { margin: 0; font-size: 13.5px; color: var(--text-2); line-height: 1.5; }
+.del-msg code { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12.5px; color: var(--accent); font-family: ui-monospace, monospace; }
+.del-tip { font-size: 12.5px; color: var(--text-3); }
+.del-preview { font-size: 12.5px; color: var(--text-3); background: var(--bg-panel); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); word-break: break-all; }
 .del-file-opt {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 12px; background: var(--bg-panel);
