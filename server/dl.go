@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -256,6 +257,19 @@ func (p *progressAdapter) findFileLocked(key string) *FileEntry {
 	return nil
 }
 
+// buildFilenamePrefix assembles the filename prefix template parts from the
+// two independent settings. Channel prefix goes first, then message prefix.
+func buildFilenamePrefix(channel, msg bool) string {
+	var sb strings.Builder
+	if channel {
+		sb.WriteString("#{{ .DialogID }} ")
+	}
+	if msg {
+		sb.WriteString("#{{ .MessageID }} ")
+	}
+	return sb.String()
+}
+
 // buildDlOptions translates a task into dl.Options for dl.Run, wiring the
 // progress adapter and iter hook, and forcing non-interactive behaviour.
 // Direct (chat,msgIDs) selections are resolved into tmessage.Dialog here.
@@ -266,10 +280,8 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 	if template == "" {
 		template = defaultTemplate
 	}
-	// 全局设置：文件名前缀 #msgId（开启后在模板渲染结果前加 "#22713 "）
-	if srv.settings.msgIdPrefix() {
-		template = "#{{ .MessageID }} " + template
-	}
+	// 全局设置：文件名前缀 #频道ID / #msgId（开关各自独立，频道在前、消息在后）
+	template = buildFilenamePrefix(srv.settings.channelIdPrefix(), srv.settings.msgIdPrefix()) + template
 
 	takeout := dl.TakeoutMode(o.Takeout)
 	if !takeout.Valid() {

@@ -37,3 +37,20 @@ func TestSettings_SnapshotIncludesNewFields(t *testing.T) {
 	require.True(t, snap["channelDir"].(bool))
 	require.Equal(t, "/dl", snap["downloadDir"])
 }
+
+func TestBuildDlOptions_TemplatePrefix(t *testing.T) {
+	// 直接测模板拼装逻辑：抽成 helper 便于测
+	cases := []struct {
+		channel, msg bool
+		want         string
+	}{
+		{false, false, ""},
+		{true, false, "#{{ .DialogID }} "},
+		{false, true, "#{{ .MessageID }} "},
+		{true, true, "#{{ .DialogID }} #{{ .MessageID }} "},
+	}
+	for _, c := range cases {
+		got := buildFilenamePrefix(c.channel, c.msg)
+		require.Equal(t, c.want, got, "prefix for channel=%v msg=%v", c.channel, c.msg)
+	}
+}
