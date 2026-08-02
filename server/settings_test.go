@@ -110,3 +110,20 @@ func TestHasExt(t *testing.T) {
 		require.Equal(t, c.want, hasExt(c.s), "hasExt(%q)", c.s)
 	}
 }
+
+func TestRenameExtCompletion(t *testing.T) {
+	// 验证补全判断：结尾带点的名字应触发补全（有有效扩展名时才跳过）
+	cases := []struct {
+		name string
+		want bool // 是否应触发补全
+	}{
+		{"video", true},
+		{"video.", true},  // 结尾点 → 需补全
+		{"video.mp4", false},
+		{"张碧晨.", true},
+	}
+	for _, c := range cases {
+		got := !hasExt(c.name)
+		require.Equal(t, c.want, got, "needsCompletion(%q)", c.name)
+	}
+}

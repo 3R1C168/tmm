@@ -168,16 +168,17 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		diskName := filepath.Base(oldPath)
 		diskName = strings.TrimSuffix(diskName, ".tmp")
 		oldExt := filepath.Ext(diskName)
-		if oldExt == "" {
-			// 磁盘文件名也没扩展名（之前被误删），用 mimetype 读文件头检测
+		// oldExt 可能是 "."（磁盘名被之前 bug 破坏成 "xxx."），不是有效扩展名
+		if !hasExt(oldExt) {
+			// 磁盘文件名也没有效扩展名，用 mimetype 读文件头检测
 			if mime, err := mimetype.DetectFile(oldPath); err == nil {
 				oldExt = mime.Extension()
 			}
 		}
-		if oldExt == "" {
+		if !hasExt(oldExt) {
 			oldExt = filepath.Ext(fe.Name)
 		}
-		if oldExt != "" {
+		if hasExt(oldExt) {
 			name += oldExt
 		}
 	}
