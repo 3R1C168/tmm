@@ -103,9 +103,9 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var req struct {
-		Key                string `json:"key"`
-		Name               string `json:"name"`
-		ForceMsgIdPrefix   bool   `json:"forceMsgIdPrefix,omitempty"`
+		Key              string `json:"key"`
+		Name             string `json:"name"`
+		ForceMsgIdPrefix bool   `json:"forceMsgIdPrefix,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -183,7 +183,13 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	newName := name
 	needPrefix := req.ForceMsgIdPrefix || s.settings.msgIdPrefix()
 	if needPrefix {
-		newName = fmt.Sprintf("#%d %s", fe.MsgID, name)
+		if req.ForceMsgIdPrefix {
+			// 批量重命名：msgId 强制，频道ID 跟随开关
+			newName = renamePrefix(true, s.settings.channelIdPrefix(), req.Key) + name
+		} else {
+			// 单文件：仅 msgId（现状不变）
+			newName = fmt.Sprintf("#%d %s", fe.MsgID, name)
+		}
 	}
 	oldBase := filepath.Base(oldPath)
 	newPath := filepath.Join(filepath.Dir(oldPath), newName)
@@ -258,10 +264,29 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "renamed", "name": newName})
 }
 
+// renamePrefix builds the forced/conditional "#msgId [optional #channelId] "
+// prefix for a rename. force == forceMsgIdPrefix (批量重命名): #msgId always
+// added. channelOn == channelIdPrefix setting: #channelId added before #msgId
+// only when the switch is on. key format "peerID/msgID".
+func renamePrefix(force, channelOn bool, key string) string {
+	if !force {
+		return ""
+	}
+	parts := strings.SplitN(key, "/", 2)
+	if len(parts) != 2 {
+		return "#" + key + " " // 异常 key 兜底：把整个 key 当 msgId
+	}
+	prefix := ""
+	if channelOn {
+		prefix += "#" + parts[0] + " "
+	}
+	return prefix + "#" + parts[1] + " "
+}
+
 type batchRequest struct {
 	IDs         []string `json:"ids"`
-	Action      string   `json:"action"`       // pause | resume | delete
-	DeleteFiles bool     `json:"deleteFiles"`  // only affects delete action
+	Action      string   `json:"action"`      // pause | resume | delete
+	DeleteFiles bool     `json:"deleteFiles"` // only affects delete action
 }
 
 func (s *Server) handleBatchTasks(w http.ResponseWriter, r *http.Request) {

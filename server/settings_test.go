@@ -38,6 +38,23 @@ func TestSettings_SnapshotIncludesNewFields(t *testing.T) {
 	require.Equal(t, "/dl", snap["downloadDir"])
 }
 
+func TestRenamePrefix(t *testing.T) {
+	cases := []struct {
+		force, channelOn bool
+		key              string
+		want             string // full prefix incl. trailing space
+	}{
+		{false, false, "2070986972/22713", ""},
+		{true, false, "2070986972/22713", "#22713 "},
+		{false, true, "2070986972/22713", ""}, // 单文件不强制，开关也不影响（needPrefix=false）
+		{true, true, "2070986972/22713", "#2070986972 #22713 "},
+	}
+	for _, c := range cases {
+		got := renamePrefix(c.force, c.channelOn, c.key)
+		require.Equal(t, c.want, got, "force=%v channelOn=%v key=%v", c.force, c.channelOn, c.key)
+	}
+}
+
 func TestBuildDlOptions_TemplatePrefix(t *testing.T) {
 	// 直接测模板拼装逻辑：抽成 helper 便于测
 	cases := []struct {
