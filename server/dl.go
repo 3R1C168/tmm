@@ -290,7 +290,7 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 
 	dir := o.Dir
 	if dir == "" {
-		dir = srv.defaultDir
+		dir = srv.downloadDirEffective()
 	}
 
 	// resolve direct message selections into dialogs
@@ -346,6 +346,7 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 		Takeout:        takeout,
 		Group:          o.Group,
 		FilenameMaxLen: srv.settings.filenameMaxLen(),
+		ChannelDir:     srv.settings.channelDir(),
 
 		// non-interactive: never prompt; always continue partial downloads
 		Continue: true,

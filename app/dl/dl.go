@@ -76,6 +76,9 @@ type Options struct {
 	// many bytes, to respect filesystem name limits. 0 = no truncation. Applied
 	// after template rendering, before appending .tmp.
 	FilenameMaxLen int
+
+	// ChannelDir stores each dialog's downloads under <dir>/#<dialogID> <name>/.
+	ChannelDir bool
 }
 
 // runtime returns the effective runtime options, preferring explicitly-set

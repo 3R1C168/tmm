@@ -15,6 +15,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/flytam/filenamify"
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
@@ -281,6 +282,22 @@ func (i *iter) markGroupProcessed(k groupKey) {
 	i.processedGroups[k] = struct{}{}
 }
 
+// channelSubdir builds the per-channel subdirectory name: "#<id> <cleaned name>".
+// Special chars in the channel name are sanitized via filenamify; empty name
+// (or empty after sanitize) falls back to "#<id>".
+func channelSubdir(id int64, name string) string {
+	s := name
+	if s != "" {
+		if cleaned, err := filenamify.FilenamifyV2(s, func(o *filenamify.Options) {}); err == nil && cleaned != "" {
+			s = cleaned
+		}
+	}
+	if s == "" {
+		return fmt.Sprintf("#%d", id)
+	}
+	return fmt.Sprintf("#%d %s", id, s)
+}
+
 func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peers.Peer, logicalPos int) (bool, bool) {
 	item, ok := tmedia.GetMedia(message)
 	if !ok {
@@ -319,8 +336,16 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 		return false, false
 	}
 
+	// 目标目录：channelDir 开时按频道（#<id> <name>）存子目录。
+	// 目录拼接必须先于 SkipSame 检查——否则 SkipSame 会在旧的顶层目录 stat，
+	// channelDir 开时永远找不到已下载文件，导致每次都重下。
+	dir := i.opts.Dir
+	if i.opts.ChannelDir {
+		dir = filepath.Join(dir, channelSubdir(from.ID(), from.VisibleName()))
+	}
+
 	if i.opts.SkipSame {
-		if stat, err := os.Stat(filepath.Join(i.opts.Dir, toName.String())); err == nil {
+		if stat, err := os.Stat(filepath.Join(dir, toName.String())); err == nil {
 			if fsutil.GetNameWithoutExt(toName.String()) == fsutil.GetNameWithoutExt(stat.Name()) &&
 				stat.Size() == item.Size {
 				logctx.From(ctx).Info("message skipped: SkipSame (disk has same name+size)",
@@ -347,7 +372,7 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 	}
 
 	filename := fmt.Sprintf("%s%s", rendered, tempExt)
-	path := filepath.Join(i.opts.Dir, filename)
+	path := filepath.Join(dir, filename)
 
 	// #113. If path contains dirs, create it. So now we support nested dirs.
 	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -209,6 +209,21 @@ func BenchmarkDeletedMessageDetection(b *testing.B) {
 	}
 }
 
+// TestChannelSubdir verifies the per-channel subdirectory name builder used by
+// processSingle when ChannelDir is enabled: "#<id> <sanitized name>", with a
+// bare "#<id>" fallback when the name is empty or sanitizes to empty.
+func TestChannelSubdir(t *testing.T) {
+	// 普通频道名：直接保留
+	require.Equal(t, "#2070986972 频道名", channelSubdir(2070986972, "频道名"))
+	// 特殊字符（/ ? : 等）经 filenamify 清理（默认替换符 "!"）
+	require.Equal(t, "#2070986972 a!b!c!d", channelSubdir(2070986972, "a/b?c:d"))
+	// 空名回退到 "#<id>"
+	require.Equal(t, "#2070986972", channelSubdir(2070986972, ""))
+	// 全保留字符名（如 "/"）：filenamify 用默认替换符 "!" 兜底，结果仍是合法单级目录名，
+	// 不会把路径分隔符漏进子目录名
+	require.Equal(t, "#2070986972 !", channelSubdir(2070986972, "/"))
+}
+
 // TestIterContextCancellation verifies that the iterator correctly handles
 // context cancellation even during deleted message handling
 func TestIterContextCancellation(t *testing.T) {
