@@ -786,7 +786,8 @@ const renameDialog = reactive({
 })
 function openRenameSingle(r) {
   // 单文件重命名：判断是否已被重命名过（原始媒体文件名主体通常是纯数字）
-  const currentName = (r.file.name || '').replace(/^#\d+\s+/, '')
+  // 去掉所有 #数字 前缀（可能同时有 #频道ID 和 #msgID 两个前缀）
+  const currentName = (r.file.name || '').replace(/^(#\d+\s+)+/, '')
   const baseName = currentName.replace(/\.[^.]+$/, '') // 去扩展名
   const isRenamed = baseName && !/^\d+$/.test(baseName)
 

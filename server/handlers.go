@@ -161,8 +161,10 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		oldPath = filepath.Join(dir, oldPath)
 	}
 
-	// 如果用户输入的新名没有扩展名，从磁盘文件补上扩展名
-	if filepath.Ext(name) == "" {
+	// 如果用户输入的新名没有有效扩展名（不含点，或只有结尾点如 "xxx."），
+	// 从磁盘文件补上扩展名。filepath.Ext("xxx.") 返回 "."（非空）但这不是有效
+	// 扩展名——若据此跳过补全会丢掉扩展名。
+	if !hasExt(name) {
 		diskName := filepath.Base(oldPath)
 		diskName = strings.TrimSuffix(diskName, ".tmp")
 		oldExt := filepath.Ext(diskName)
@@ -264,6 +266,13 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 // addMsgId == whether the #msgId part should appear (批量重命名强制，或 msgIdPrefix 开关开)。
 // channelOn == channelIdPrefix setting: #channelId added before #msgId when on。
 // key format "peerID/msgID"。
+// hasExt reports whether s carries a real extension: a dot followed by at
+// least one char, and not merely a trailing dot ("file." has no real ext).
+func hasExt(s string) bool {
+	e := filepath.Ext(s)
+	return e != "" && e != "."
+}
+
 func renamePrefix(addMsgId, channelOn bool, key string) string {
 	parts := strings.SplitN(key, "/", 2)
 	if len(parts) != 2 {

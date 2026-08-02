@@ -92,3 +92,21 @@ func TestBuildDlOptions_TemplatePrefix(t *testing.T) {
 		require.Equal(t, c.want, got, "prefix for channel=%v msg=%v", c.channel, c.msg)
 	}
 }
+
+func TestHasExt(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"video.mp4", true},
+		{"video", false},
+		{"video.", false},  // 只有结尾点，无有效扩展名
+		{"张碧晨.", false},  // 同上（中文名结尾点）
+		{".mp4", true},     // 点开头但有内容
+		{"a.b.c", true},    // 多段，ext=.c
+		{"", false},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, hasExt(c.s), "hasExt(%q)", c.s)
+	}
+}
