@@ -28,12 +28,12 @@
 **已确认的需求决策**（用户拍板）：
 1. **独立开关**：新增 `channelIdPrefix`，与 `msgIdPrefix` 完全独立，各自开关互不影响。
 2. **格式**：两个独立 `#`，`#频道ID #msgID 文件名`。
-3. **批量重命名也强制加频道ID**：右键/铅笔批量重命名无论开关状态，一律 `#频道ID #msgID 文件名`（频道ID 从文件 key `"peerID/msgID"` 拆出，无需 RPC）。
+3. **批量重命名解耦**：批量重命名强制加 `#msgId`（现状，`forceMsgIdPrefix` 不变）；频道ID **不强制**，跟随 `channelIdPrefix` 开关 —— 开关开才加 `#频道ID`。
 
 **非目标**（YAGNI）：
 - 不改 `defaultTemplate`（`dl.go:20`）本身 —— 默认模板仍为 `{{ .DialogID }}_{{ .MessageID }}_{{ filenamify .FileName }}`，前缀由开关在模板层 prepend。
 - 不加频道「显示名」或 `@username` —— 只加数字 ID（用户明确要求数字 ID）。
-- 不改单文件重命名路径的前缀逻辑（单文件重命名不强制前缀，沿用现有：`needPrefix` 时加 `#msgId`，频道ID 仅批量重命名强制）。
+- 不改单文件重命名路径的前缀逻辑（单文件重命名不强制前缀，沿用现有：`needPrefix := ForceMsgIdPrefix || msgIdPrefix()` 时加 `#msgId`；频道ID 不参与单文件重命名）。
 
 ---
 
@@ -64,9 +64,9 @@ if srv.settings.msgIdPrefix() {
 ```
 
 **`server/handlers.go`** `handleRenameFile`（约 182-184 行）：
-- 批量重命名（`forceMsgIdPrefix`）时，前缀从 `#msgId` 扩展为 `#频道ID #msgId`。
-- 频道ID 从请求 `key`（格式 `"peerID/msgID"`）拆分 `strings.Split(key, "/")[0]`，无需 RPC。
-- 单文件重命名（非 force）保持现状：`needPrefix := req.ForceMsgIdPrefix || s.settings.msgIdPrefix()` 只加 `#msgId`（`channelIdPrefix` 不参与单文件重命名，符合"仅批量重命名强制频道ID"的决策）。
+- `needPrefix := req.ForceMsgIdPrefix || s.settings.msgIdPrefix()`（不变）—— `#msgId` 强制（批量）或开关打开（单文件）。
+- 频道ID 前缀：**跟随开关**，`if s.settings.channelIdPrefix()` 时在 `#msgId` 前加 `#频道ID`。频道ID 从请求 `key`（格式 `"peerID/msgID"`）拆分 `strings.Split(key, "/")[0]`，无需 RPC。
+- 顺序：频道在前、消息在后。批量重命名开关开 → `#频道ID #msgId 新名`；开关关 → `#msgId 新名`（msgId 强制不变）。
 
 ### 3.2 前端
 
@@ -89,7 +89,8 @@ if srv.settings.msgIdPrefix() {
 | 只开频道 | `#2070986972 22713_video.mp4` |
 | 只开消息 | `#22713 22713_video.mp4` |
 | 都开 | `#2070986972 #22713 22713_video.mp4` |
-| 批量重命名（任意开关态） | `#2070986972 #22713 新名` |
+| 批量重命名（开关关） | `#22713 新名`（msgId 强制，现状不变） |
+| 批量重命名（开关开） | `#2070986972 #22713 新名`（msgId 强制 + 频道跟随开关） |
 
 - 文件名截断（`FilenameMaxLen`）在模板渲染后执行，前缀计入长度 —— 与现有一致，无需改动。
 - 前缀内的空格：`#{{ .DialogID }} ` 和 `#{{ .MessageID }} ` 各含一个尾部空格，两个都开时天然形成 `#频道 #消息 `，不会粘连。
@@ -100,7 +101,7 @@ if srv.settings.msgIdPrefix() {
 
 **后端单测**（`server/` 下新增或复用现有测试文件）：
 - `buildDlOptions` 模板拼装：mock settings 组合（都关/只频道/只消息/都开），断言 `opts.Template` 前缀正确。
-- `handleRenameFile` key 拆分：`"2070986972/22713"` → 前缀 `#2070986972 #22713 `；force 与非 force 分支。
+- `handleRenameFile` 前缀：force 时 `#msgId` 强制；`channelIdPrefix` 开/关 两种状态下频道前缀的有无；key 拆分 `"2070986972/22713"` → 频道 `2070986972`。
 
 **手动验收**（用户执行，沿用用户工作风格）：
 1. clear-cache.bat + Ctrl+Shift+R，设置页打开「文件名添加频道ID前缀」。
