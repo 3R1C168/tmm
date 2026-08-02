@@ -61,18 +61,18 @@ func TestSettings_UpdateDownloadDir_Set(t *testing.T) {
 
 func TestRenamePrefix(t *testing.T) {
 	cases := []struct {
-		force, channelOn bool
-		key              string
-		want             string // full prefix incl. trailing space
+		addMsgId, channelOn bool
+		key                 string
+		want                string // full prefix incl. trailing space
 	}{
 		{false, false, "2070986972/22713", ""},
 		{true, false, "2070986972/22713", "#22713 "},
-		{false, true, "2070986972/22713", ""}, // 单文件不强制，开关也不影响（needPrefix=false）
+		{false, true, "2070986972/22713", "#2070986972 "}, // 只开频道ID：单文件重命名保留频道前缀（修复点）
 		{true, true, "2070986972/22713", "#2070986972 #22713 "},
 	}
 	for _, c := range cases {
-		got := renamePrefix(c.force, c.channelOn, c.key)
-		require.Equal(t, c.want, got, "force=%v channelOn=%v key=%v", c.force, c.channelOn, c.key)
+		got := renamePrefix(c.addMsgId, c.channelOn, c.key)
+		require.Equal(t, c.want, got, "addMsgId=%v channelOn=%v key=%v", c.addMsgId, c.channelOn, c.key)
 	}
 }
 

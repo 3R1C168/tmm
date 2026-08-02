@@ -180,17 +180,12 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 新文件名：批量重命名（forceMsgIdPrefix）或设置开启时，前面加 #msgId
+	// 新文件名：批量重命名（forceMsgIdPrefix）或设置开启时，前面加 #msgId；
+	// 频道ID 前缀跟随 channelIdPrefix 开关（单文件与批量一致）。
 	newName := name
-	needPrefix := req.ForceMsgIdPrefix || s.settings.msgIdPrefix()
-	if needPrefix {
-		if req.ForceMsgIdPrefix {
-			// 批量重命名：msgId 强制，频道ID 跟随开关
-			newName = renamePrefix(true, s.settings.channelIdPrefix(), req.Key) + name
-		} else {
-			// 单文件：仅 msgId（现状不变）
-			newName = fmt.Sprintf("#%d %s", fe.MsgID, name)
-		}
+	needMsgId := req.ForceMsgIdPrefix || s.settings.msgIdPrefix()
+	if needMsgId || s.settings.channelIdPrefix() {
+		newName = renamePrefix(needMsgId, s.settings.channelIdPrefix(), req.Key) + name
 	}
 	oldBase := filepath.Base(oldPath)
 	newPath := filepath.Join(filepath.Dir(oldPath), newName)
@@ -265,14 +260,11 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "renamed", "name": newName})
 }
 
-// renamePrefix builds the forced/conditional "#msgId [optional #channelId] "
-// prefix for a rename. force == forceMsgIdPrefix (批量重命名): #msgId always
-// added. channelOn == channelIdPrefix setting: #channelId added before #msgId
-// only when the switch is on. key format "peerID/msgID".
-func renamePrefix(force, channelOn bool, key string) string {
-	if !force {
-		return ""
-	}
+// renamePrefix builds the "#msgId [optional #channelId] " prefix for a rename.
+// addMsgId == whether the #msgId part should appear (批量重命名强制，或 msgIdPrefix 开关开)。
+// channelOn == channelIdPrefix setting: #channelId added before #msgId when on。
+// key format "peerID/msgID"。
+func renamePrefix(addMsgId, channelOn bool, key string) string {
 	parts := strings.SplitN(key, "/", 2)
 	if len(parts) != 2 {
 		return "#" + key + " " // 异常 key 兜底：把整个 key 当 msgId
@@ -281,7 +273,10 @@ func renamePrefix(force, channelOn bool, key string) string {
 	if channelOn {
 		prefix += "#" + parts[0] + " "
 	}
-	return prefix + "#" + parts[1] + " "
+	if addMsgId {
+		prefix += "#" + parts[1] + " "
+	}
+	return prefix
 }
 
 type batchRequest struct {
