@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // 复现：store 从 JSON 加载后，task.Files 元素是否为 nil。
@@ -47,4 +49,20 @@ func TestStoreLoadFilesNotNil(t *testing.T) {
 		}
 		t.Logf("files[%d]: key=%s path=%s", i, f.Key, f.Path)
 	}
+}
+
+// channelDir 开启后，下载文件落在 {dir}/{channelDir 子目录}/ 下。
+// removeTaskFiles 必须递归匹配 {peer}_{msg}_*，否则频道子目录里的文件删不掉。
+func TestRemoveTaskFiles_ChannelDir(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "#2070986972 频道")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	f1 := filepath.Join(sub, "2070986972_22713_video.mp4")
+	require.NoError(t, os.WriteFile(f1, []byte("x"), 0o644))
+	f2 := filepath.Join(dir, "other.txt") // 不应被删
+	require.NoError(t, os.WriteFile(f2, []byte("x"), 0o644))
+
+	// 调用 removeTaskFiles 的 glob helper
+	paths := globTaskFiles(dir, "2070986972", "22713")
+	require.ElementsMatch(t, []string{f1}, paths)
 }

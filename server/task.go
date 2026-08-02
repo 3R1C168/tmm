@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -206,14 +207,7 @@ func (m *taskManager) removeTaskFiles(task *Task) {
 		zap.String("task", task.ID), zap.Int("targets", len(targets)), zap.String("dir", dir))
 	removed := 0
 	for _, t := range targets {
-		// glob {dir}/{peer}_{msg}_*
-		pattern := filepath.Join(dir, t.peer+"_"+t.msg+"_*")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			m.srv.log().Warn("glob task files failed",
-				zap.String("task", task.ID), zap.String("pattern", pattern), zap.Error(err))
-			continue
-		}
+		matches := globTaskFiles(dir, t.peer, t.msg)
 		for _, p := range matches {
 			if err := os.Remove(p); err != nil {
 				if !os.IsNotExist(err) {
@@ -227,6 +221,26 @@ func (m *taskManager) removeTaskFiles(task *Task) {
 	}
 	m.srv.log().Info("task files removed",
 		zap.String("task", task.ID), zap.Int("removed", removed))
+}
+
+// globTaskFiles recursively finds files matching <peer>_<msg>_* under dir,
+// covering the per-channel subdir layout (channelDir on) and flat layout.
+func globTaskFiles(dir, peer, msg string) []string {
+	prefix := peer + "_" + msg + "_"
+	var out []string
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(filepath.Base(p), prefix) {
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out
 }
 
 // BatchResult reports the outcome of one id in a batch operation.
