@@ -1,7 +1,7 @@
-# 文件名频道ID前缀开关 + 按频道存放设计
+# 文件名频道ID前缀开关 + 按频道存放 + 下载目录可配置设计
 
 - **日期**：2026-08-02
-- **范围**：新增设置开关「文件名添加频道ID前缀」+「按频道存放下载文件」+ 批量重命名强制前缀扩展到频道ID（跟随开关）。
+- **范围**：新增设置开关「文件名添加频道ID前缀」+「按频道存放下载文件」+「下载目录可配置」+ 批量重命名强制前缀扩展到频道ID（跟随开关）。
 - **目标用户**：项目所有者本人（非程序员，中文交流，用 tmm.v11 实际运行）。
 - **交付目录**：`tmm.v11/`（后端重建 exe + 前端 build 拷 web）。
 
@@ -32,9 +32,10 @@
 
 ## 2. 目标
 
-新增两个独立设置开关（均默认关闭）：
+新增三个设置项（前两个开关默认关闭）：
 1. **文件名添加频道ID前缀**：开启后下载文件名变为 `#<频道ID> #<msgID> <文件名>`。
 2. **按频道存放下载文件**：开启后文件存到 `<下载目录>/#<频道ID> <频道名>/` 子目录。
+3. **下载目录可配置**：默认 exe 目录下的 `downloads`，可在设置页改为任意路径（文本 + 原生目录选择器）。
 
 **已确认的需求决策**（用户拍板）：
 1. **文件名频道ID前缀独立开关**：新增 `channelIdPrefix`，与 `msgIdPrefix` 完全独立，各自开关互不影响。
@@ -43,6 +44,7 @@
 4. **按频道存放独立开关**：`channelDir` 与文件名前缀开关完全独立。
 5. **目录格式**：`#频道ID 频道名`，频道名取自 gotd `peers.Peer.VisibleName()`（=`tg.Channel.Title`，与 `/api/chats` 的 `visibleName` 同一来源，零额外 RPC）；频道名特殊字符用 `filenamify` 清理。
 6. **仅新任务生效**：开关在任务运行时（`buildDlOptions`）计算目录，存量任务不受影响（任务 `opts.Dir` 固化，不迁移）。
+7. **下载目录为基准**：配置的下载目录作为基准，未开 channelDir 文件直接落基准目录；开了落到 `基准目录/#频道ID 频道名/`。
 
 **非目标**（YAGNI）：
 - 不改 `defaultTemplate`（`dl.go:20`）本身 —— 默认模板仍为 `{{ .DialogID }}_{{ .MessageID }}_{{ filenamify .FileName }}`，前缀由开关在模板层 prepend。
@@ -50,6 +52,7 @@
 - 不改单文件重命名路径的前缀逻辑（单文件重命名不强制前缀，沿用现有：`needPrefix := ForceMsgIdPrefix || msgIdPrefix()` 时加 `#msgId`；频道ID 不参与单文件重命名）。
 - 存量任务不迁移目录。
 - 频道无标题时不回退取用户名 —— 目录退化为纯 `#频道ID`。
+- 下载目录不做成独立频道目录 —— 始终以配置的下载目录为基准。
 
 ---
 
@@ -58,17 +61,19 @@
 ### 3.1 后端
 
 **`server/settings.go`**：
-- `settings` struct 加两个字段：
+- `settings` struct 加三个字段：
   - `ChannelIdPrefix bool`（`json:"channelIdPrefix"`）—— 文件名频道ID前缀
   - `ChannelDir bool`（`json:"channelDir"`）—— 按频道存放
-- `defaultSettings` 均默认 `false`。
-- `settingsJSON` load 辅助结构加 `ChannelIdPrefix *bool`、`ChannelDir *bool`，`load()` 对应加指针判空赋值。
-- `update(*updateSettingsRequest)` 加两个字段的判空赋值。
-- 新增 getter `channelIdPrefix()`、`channelDir()`（复刻 `msgIdPrefix()`，第 139-144 行）。
+  - `DownloadDir string`（`json:"downloadDir"`）—— 下载目录（空 = 用默认 exe 旁 downloads）
+- `defaultSettings` 前两个默认 `false`，`DownloadDir` 默认 `""`。
+- `settingsJSON` load 辅助结构加 `ChannelIdPrefix *bool`、`ChannelDir *bool`、`DownloadDir *string`，`load()` 对应加指针判空赋值。
+- `update(*updateSettingsRequest)` 加三个字段的判空赋值。
+- 新增 getter `channelIdPrefix()`、`channelDir()`、`downloadDir()`（复刻 `msgIdPrefix()`，第 139-144 行）。`downloadDir()` 返回非空值或 `s.defaultDir` 兜底。
 - `snapshot()` 走 `json.Marshal`，自动带出新字段，无需改。
 
 **`server/handlers.go`**：
-- `updateSettingsRequest` struct 加 `ChannelIdPrefix *bool`、`ChannelDir *bool`（`json` tag 对应）。
+- `updateSettingsRequest` struct 加 `ChannelIdPrefix *bool`、`ChannelDir *bool`、`DownloadDir *string`（`json` tag 对应）。
+- `handleConfig`（约 344 行）返回的 `downloadDir` 改为取 `settings.downloadDir()`（而非 `s.defaultDir`），前端拿到的是当前生效目录。
 
 **`server/dl.go`** `buildDlOptions`（约 262-320 行）：
 1. **文件名前缀**（约 269-272 行，现有 `msgIdPrefix` 旁）：
@@ -81,7 +86,8 @@ if srv.settings.msgIdPrefix() {
     template = "#{{ .MessageID }} " + template
 }
 ```
-2. **按频道存放开关透传**：`dl.Options` 加 `ChannelDir` 字段，组装时传 `srv.settings.channelDir()`。目录拼接不在此层做（peer 名需迭代器已解析的 `from`），由 iter.go 的 `processSingle` 完成（见下）。
+2. **下载目录**（约 279-282 行 `dir` 计算处）：`dir := o.Dir; if dir == "" { dir = srv.settings.downloadDir() }`（`downloadDir()` 内部空值兜底 `srv.defaultDir`），替换现有 `dir = srv.defaultDir`。
+3. **按频道存放开关透传**：`dl.Options` 加 `ChannelDir` 字段，组装时传 `srv.settings.channelDir()`。目录拼接不在此层做（peer 名需迭代器已解析的 `from`），由 iter.go 的 `processSingle` 完成（见下）。
 
 **`app/dl/iter.go`**：
 - `Options` struct 加字段 `ChannelDir bool`（`server/dl.go:324` 组装时传 `srv.settings.channelDir()`）。
@@ -112,9 +118,15 @@ path := filepath.Join(dir, filename)
   ```
   - 名称：「按频道存放下载文件」
   - 描述示例：`downloads/#2070986972 💚资源社区/`，说明"开启后每个频道的文件存到单独子目录（#频道ID + 频道名），频道名中的特殊字符会被清理"。
-- `settings` ref（第 101 行）加 `channelIdPrefix: false, channelDir: false`。
-- `load`（第 110 行）加 `channelIdPrefix: s.channelIdPrefix === true, channelDir: s.channelDir === true`。
-- `save` payload（第 122 行）加 `channelIdPrefix: settings.value.channelIdPrefix, channelDir: settings.value.channelDir`。
+- `settings` ref（第 101 行）加 `channelIdPrefix: false, channelDir: false, downloadDir: ''`。
+- `load`（第 110 行）加 `channelIdPrefix: s.channelIdPrefix === true, channelDir: s.channelDir === true, downloadDir: s.downloadDir || ''`。
+- `save` payload（第 122 行）加 `channelIdPrefix: settings.value.channelIdPrefix, channelDir: settings.value.channelDir, downloadDir: settings.value.downloadDir || undefined`。
+
+**新增「下载目录」设置区**（「文件名」区之前或之后）：
+- 文本输入框显示当前路径（`v-model="settings.downloadDir"`），placeholder 显示默认目录（`<exe>/downloads`，可调 /api/config 的 downloadDir）。
+- 「选择文件夹」按钮调 `api.pickFolder()`（复用现有 /api/fs/pick-folder，handlers_fs.go:17）—— 但现有标题写死「选择 Telegram Desktop 数据目录」，需参数化：加 query `title`，如 `/api/fs/pick-folder?title=选择下载目录`，前端 Login.vue 不传保持默认标题。
+- 选择后填入文本输入框；「保存」或变更即存（沿用 saveSettings 模式）。
+- 说明文字：「下载文件存放的目录，默认在程序所在目录的 downloads 文件夹。按频道存放开关开启时，文件会存到此目录下 #频道ID 频道名 子目录。」
 
 ### 3.3 边界行为
 
@@ -138,6 +150,15 @@ path := filepath.Join(dir, filename)
 | `channelDir` 开 + 频道名含特殊字符 | `downloads/#2070986972 清理后名/22713_video.mp4` |
 | `channelDir` 开 + 频道无标题 | `downloads/#2070986972/22713_video.mp4` |
 
+**下载目录**（`downloadDir` 设置，空 = 默认 exe 旁 downloads）：
+
+| 场景 | 落盘基准 |
+|---|---|
+| 未设置（空） | `<exe目录>/downloads/`（现状默认） |
+| 设置了路径 | `<设置路径>/` |
+| + channelDir 开 | `<下载目录>/#频道ID 频道名/` |
+
+- `DownloadDir` 设置相对路径时按相对 exe 目录解析为绝对路径再存（避免工作目录依赖）。
 - 文件名截断（`FilenameMaxLen`）在模板渲染后执行，前缀计入长度 —— 与现有一致，无需改动。
 - 前缀内的空格：`#{{ .DialogID }} ` 和 `#{{ .MessageID }} ` 各含一个尾部空格，两个都开时天然形成 `#频道 #消息 `，不会粘连。
 - **删除任务文件**（`server/task.go:170` `removeTaskFiles`）：现有按 `task.Opts.Dir` 下 `glob {chatID}_{msgID}_*` 找文件。`channelDir` 开启后文件在子目录，glob 需适配 —— 改为在 `task.Opts.Dir` 下**递归查找**（或子目录下 glob）。此项是必改的连带影响。
@@ -150,13 +171,16 @@ path := filepath.Join(dir, filename)
 - `buildDlOptions` 模板拼装：mock settings 组合（都关/只频道/只消息/都开），断言 `opts.Template` 前缀正确。
 - `handleRenameFile` 前缀：force 时 `#msgId` 强制；`channelIdPrefix` 开/关 两种状态下频道前缀的有无；key 拆分 `"2070986972/22713"` → 频道 `2070986972`。
 - `iter.go` 路径：mock `ChannelDir` 开/关，断言 `processSingle` 生成的 `path` 含/不含频道子目录；频道名特殊字符清理（`:` `?` `<` 等）；空频道名回退。
+- `downloadDir()`：空值兜底 `defaultDir`；非空返回设置值。
+- `handleConfig` 返回当前生效 `downloadDir`。
 
 **手动验收**（用户执行，沿用用户工作风格）：
 1. clear-cache.bat + Ctrl+Shift+R，设置页打开「文件名添加频道ID前缀」+「按频道存放下载文件」。
 2. 新建任务下载，检查：
    - 文件名四种组合；
    - 文件落在 `downloads/#频道ID 频道名/` 子目录；
-   - 频道名特殊字符被清理。
+   - 频道名特殊字符被清理；
+   - 设置页改下载目录 + 选文件夹 → 新任务文件落新目录。
 3. 批量重命名（右键多选 → 批量重命名），检查 `#频道 #消息 新名`。
 4. 删除任务，确认 `channelDir` 开时文件被正确删除（递归）。
 5. 设置保存 → 重启 → 值仍在。
