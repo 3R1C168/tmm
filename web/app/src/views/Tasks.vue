@@ -362,7 +362,7 @@ const sourceFilter = ref('')      // fromName 字符串，空=全部
 const activityFilter = ref('')    // active | inactive | ''(全部)
 
 const fileStatusMap = {
-  pending: 'paused', running: 'downloading', done: 'done', failed: 'failed',
+  pending: 'paused', running: 'downloading', done: 'done', failed: 'failed', paused: 'paused',
 }
 function rowStatus(file) {
   return fileStatusMap[file.status] || file.status
@@ -952,14 +952,14 @@ const totalSize = computed(() => store.tasks.reduce((s, t) => s + (t.totalSize |
 const filePct = (f) => (f.size > 0 ? Math.min(100, Math.round((f.downloaded / f.size) * 100)) : 0)
 function groupPct(g) { return g.size > 0 ? Math.min(100, Math.round((g.downloaded / g.size) * 100)) : 0 }
 function fileStatusText(s) {
-  return { pending: '排队中', running: '下载中', done: '已完成', failed: '失败' }[s] || s
+  return { pending: '排队中', running: '下载中', done: '已完成', failed: '失败', paused: '已暂停' }[s] || s
 }
 function progressStatus(s) {
   if (s === 'done') return 'success'
   if (s === 'failed') return 'exception'
   return ''
 }
-const fileIconMap = { pending: Clock, running: Download, done: Check, failed: X }
+const fileIconMap = { pending: Clock, running: Download, done: Check, failed: X, paused: Pause }
 function fileIcon(s) { return fileIconMap[s] || null }
 function firstLine(text, max = 30) {
   if (!text) return ''

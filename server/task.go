@@ -444,7 +444,7 @@ func (m *taskManager) run(id string) {
 		// FileEntry 残留。把这些标为 done，语义正确（文件确实在磁盘上），
 		// 也避免「task done 但有 pending 文件」的矛盾显示。
 		for _, f := range task.Files {
-			if f.Status == FilePending {
+			if f.Status == FilePending || f.Status == FilePaused {
 				f.Status = FileDone
 			}
 		}

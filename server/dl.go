@@ -226,7 +226,7 @@ func (p *progressAdapter) OnDone(elem downloader.Elem, derr error) {
 	if fe != nil {
 		if ferr != nil {
 			if errors.Is(ferr, context.Canceled) {
-				fe.Status = FilePending // paused; resumable
+				fe.Status = FilePaused // 已开始下载后被暂停，可续传（区别于预填排队中的 FilePending）
 			} else {
 				fe.Status = FileFailed
 				fe.Error = ferr.Error()

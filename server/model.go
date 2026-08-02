@@ -21,10 +21,11 @@ const (
 type FileStatus string
 
 const (
-	FilePending FileStatus = "pending"
+	FilePending FileStatus = "pending" // 预填排队中：任务创建时列入，尚未轮到下载
 	FileRunning FileStatus = "running"
 	FileDone    FileStatus = "done"
 	FileFailed  FileStatus = "failed"
+	FilePaused  FileStatus = "paused" // 已开始下载后被打断（暂停），可续传
 )
 
 // FileEntry tracks one downloaded file within a task.
