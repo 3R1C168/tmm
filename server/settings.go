@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/go-faster/errors"
@@ -37,18 +38,29 @@ type settings struct {
 	// Windows=255, macOS=255 (HFS+/APFS), Linux=255 bytes.
 	FilenameMaxLen int `json:"filenameMaxLen"`
 
+	// ChannelIdPrefix prefixes download filenames with #<DialogID> to identify
+	// the source channel.
+	ChannelIdPrefix bool `json:"channelIdPrefix"`
+	// ChannelDir stores downloads in per-channel subdirectories.
+	ChannelDir bool `json:"channelDir"`
+	// DownloadDir is the configurable download directory ("" = server default).
+	DownloadDir string `json:"downloadDir"`
+
 	path string `json:"-"`
 }
 
 // settingsJSON 是 load 时的辅助结构：可空字段用指针，区分"未设置=用默认"
 // 和"显式 false/0"。只有 load 用，save/snapshot 走 json.Marshal(settings)。
 type settingsJSON struct {
-	PreviewTakeout     bool  `json:"previewTakeout"`
-	TakeoutMinMB       int   `json:"takeoutMinMB"`
-	CacheMaxMB         int   `json:"cacheMaxMB"`
-	ClearPreviewOnExit *bool `json:"clearPreviewOnExit"`
-	MsgIdPrefix        *bool `json:"msgIdPrefix"`
-	FilenameMaxLen     *int  `json:"filenameMaxLen"`
+	PreviewTakeout     bool    `json:"previewTakeout"`
+	TakeoutMinMB       int     `json:"takeoutMinMB"`
+	CacheMaxMB         int     `json:"cacheMaxMB"`
+	ClearPreviewOnExit *bool   `json:"clearPreviewOnExit"`
+	MsgIdPrefix        *bool   `json:"msgIdPrefix"`
+	FilenameMaxLen     *int    `json:"filenameMaxLen"`
+	ChannelIdPrefix    *bool   `json:"channelIdPrefix"`
+	ChannelDir         *bool   `json:"channelDir"`
+	DownloadDir        *string `json:"downloadDir"`
 }
 
 func defaultSettings(path string) *settings {
@@ -59,6 +71,9 @@ func defaultSettings(path string) *settings {
 		ClearPreviewOnExit: true,
 		MsgIdPrefix:        false,
 		FilenameMaxLen:     200, // 留余量给 .tmp/.tdlstate 后缀和扩展名
+		ChannelIdPrefix:    false,
+		ChannelDir:         false,
+		DownloadDir:        "",
 		path:               path,
 	}
 }
@@ -85,6 +100,15 @@ func (st *settings) load() error {
 	}
 	if a.FilenameMaxLen != nil {
 		st.FilenameMaxLen = *a.FilenameMaxLen
+	}
+	if a.ChannelIdPrefix != nil {
+		st.ChannelIdPrefix = *a.ChannelIdPrefix
+	}
+	if a.ChannelDir != nil {
+		st.ChannelDir = *a.ChannelDir
+	}
+	if a.DownloadDir != nil {
+		st.DownloadDir = *a.DownloadDir
 	}
 	if st.TakeoutMinMB <= 0 {
 		st.TakeoutMinMB = 50
@@ -143,6 +167,27 @@ func (st *settings) msgIdPrefix() bool {
 	return st.MsgIdPrefix
 }
 
+// channelIdPrefix reports whether download filenames should be prefixed with #DialogID.
+func (st *settings) channelIdPrefix() bool {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.ChannelIdPrefix
+}
+
+// channelDir reports whether downloads should be stored in per-channel subdirs.
+func (st *settings) channelDir() bool {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.ChannelDir
+}
+
+// downloadDir returns the configured download directory ("" = use default).
+func (st *settings) downloadDir() string {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.DownloadDir
+}
+
 // filenameMaxLen reports the max filename length (0 = unlimited).
 func (st *settings) filenameMaxLen() int {
 	st.mu.RLock()
@@ -182,6 +227,37 @@ func (st *settings) update(a *updateSettingsRequest) error {
 	if a.FilenameMaxLen != nil {
 		st.FilenameMaxLen = *a.FilenameMaxLen
 	}
+	if a.ChannelIdPrefix != nil {
+		st.ChannelIdPrefix = *a.ChannelIdPrefix
+	}
+	if a.ChannelDir != nil {
+		st.ChannelDir = *a.ChannelDir
+	}
+	if a.DownloadDir != nil {
+		if *a.DownloadDir == "" {
+			st.DownloadDir = ""
+		} else {
+			// 相对路径基于 exe 目录绝对化，避免工作目录依赖
+			d := *a.DownloadDir
+			if !filepath.IsAbs(d) {
+				if exe, err := os.Executable(); err == nil {
+					d = filepath.Join(filepath.Dir(exe), d)
+				} else {
+					d, _ = filepath.Abs(d)
+				}
+			}
+			st.DownloadDir = d
+		}
+	}
 	st.mu.Unlock()
 	return st.save()
+}
+
+// downloadDirEffective returns the effective download dir: settings value if
+// set, else the server default.
+func (s *Server) downloadDirEffective() string {
+	if d := s.settings.downloadDir(); d != "" {
+		return d
+	}
+	return s.defaultDir
 }

@@ -343,7 +343,7 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"downloadDir": s.defaultDir,
+		"downloadDir": s.downloadDirEffective(),
 		"webRoot":     s.opts.WebRoot,
 	})
 }
@@ -354,12 +354,15 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateSettingsRequest struct {
-	PreviewTakeout     *bool `json:"previewTakeout"`
-	TakeoutMinMB       *int  `json:"takeoutMinMB"`
-	CacheMaxMB         *int  `json:"cacheMaxMB"`
-	ClearPreviewOnExit *bool `json:"clearPreviewOnExit"`
-	MsgIdPrefix        *bool `json:"msgIdPrefix"`
-	FilenameMaxLen     *int  `json:"filenameMaxLen"`
+	PreviewTakeout     *bool   `json:"previewTakeout"`
+	TakeoutMinMB       *int    `json:"takeoutMinMB"`
+	CacheMaxMB         *int    `json:"cacheMaxMB"`
+	ClearPreviewOnExit *bool   `json:"clearPreviewOnExit"`
+	MsgIdPrefix        *bool   `json:"msgIdPrefix"`
+	FilenameMaxLen     *int    `json:"filenameMaxLen"`
+	ChannelIdPrefix    *bool   `json:"channelIdPrefix"`
+	ChannelDir         *bool   `json:"channelDir"`
+	DownloadDir        *string `json:"downloadDir"`
 }
 
 // handleUpdateSettings applies a partial settings update.
