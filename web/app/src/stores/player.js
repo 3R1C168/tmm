@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '../api'
+import { isAudio as isAudioMedia } from '../utils/media'
 
 // Global audio player: a single <audio> element (owned by GlobalPlayer.vue,
 // outside the virtual-scrolled message list and any route) driven by this
@@ -124,7 +125,3 @@ export const usePlayerStore = defineStore('player', {
     _onError(msg) { this.loading = false; this.error = msg || '音频加载失败' },
   },
 })
-
-function isAudioMedia(media) {
-  return media && (/\.(mp3|m4a|aac|ogg|opus|flac|wav)$/i.test(media.name || '') || /^audio\//i.test(media.mime || ''))
-}

@@ -302,6 +302,7 @@ import { ref, computed, reactive, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { useAppStore } from '../stores/app'
+import { fmtBytes } from '../utils/format'
 import {
   Clock, Download, Pause, Check, X, TriangleAlert, MessageSquare,
   Play, Trash2, Settings2, Zap, Moon, ChevronDown, ChevronRight, Pencil,
@@ -948,13 +949,6 @@ const totalDownloaded = computed(() => store.tasks.reduce((s, t) => s + (t.downl
 const totalSize = computed(() => store.tasks.reduce((s, t) => s + (t.totalSize || 0), 0))
 
 // --- 格式化 helper ---
-function fmtBytes(n) {
-  if (!n) return '0 B'
-  const u = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
-  return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${u[i]}`
-}
 const filePct = (f) => (f.size > 0 ? Math.min(100, Math.round((f.downloaded / f.size) * 100)) : 0)
 function groupPct(g) { return g.size > 0 ? Math.min(100, Math.round((g.downloaded / g.size) * 100)) : 0 }
 function fileStatusText(s) {

@@ -369,7 +369,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.settings.update(req.PreviewTakeout, req.TakeoutMinMB, req.CacheMaxMB, req.ClearPreviewOnExit, req.MsgIdPrefix, req.FilenameMaxLen); err != nil {
+	if err := s.settings.update(&req); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

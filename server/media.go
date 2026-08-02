@@ -459,7 +459,7 @@ func (s *Server) handleMediaStream(w http.ResponseWriter, r *http.Request) {
 
 	start, end, partial, ok := parseRange(r.Header.Get("Range"), t.size)
 	if !ok {
-		w.Header().Set("Content-Range", "bytes */"+itoa64(t.size))
+		w.Header().Set("Content-Range", "bytes */"+itoa(t.size))
 		writeErr(w, http.StatusRequestedRangeNotSatisfiable, errString("请求的字节范围无效"))
 		return
 	}
@@ -534,9 +534,9 @@ func (s *Server) handleMediaStream(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Length", itoa64(length))
+	w.Header().Set("Content-Length", itoa(length))
 	if partial {
-		w.Header().Set("Content-Range", "bytes "+itoa(start)+"-"+itoa(end)+"/"+itoa64(t.size))
+		w.Header().Set("Content-Range", "bytes "+itoa(start)+"-"+itoa(end)+"/"+itoa(t.size))
 		w.WriteHeader(http.StatusPartialContent)
 	} else {
 		w.WriteHeader(http.StatusOK)
@@ -565,7 +565,7 @@ func (s *Server) serveProbe(w http.ResponseWriter, r *http.Request, a *account, 
 	}
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Range", "bytes 0-1/"+itoa64(t.size))
+	w.Header().Set("Content-Range", "bytes 0-1/"+itoa(t.size))
 	w.Header().Set("Content-Length", "2")
 	w.WriteHeader(http.StatusPartialContent)
 	// tt trick: answer with 2 empty bytes, no download needed.
@@ -821,5 +821,5 @@ func serveFileWithMime(w http.ResponseWriter, r *http.Request, path, name string
 	http.ServeFile(w, r, path)
 }
 
-func itoa(v int64) string   { return strconv.FormatInt(v, 10) }
-func itoa64(v int64) string { return strconv.FormatInt(v, 10) }
+// itoa 是 strconv.FormatInt(v,10) 的简写别名，media.go 多处用于拼接字符串。
+func itoa(v int64) string { return strconv.FormatInt(v, 10) }

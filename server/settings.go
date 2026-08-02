@@ -9,9 +9,9 @@ import (
 )
 
 // settings holds user-tunable service preferences, persisted to settings.json
-// next to the executable.
+// next to the executable. JSON 序列化直接走 struct tag，不再手写字段映射。
 type settings struct {
-	mu sync.RWMutex
+	mu sync.RWMutex `json:"-"`
 
 	// PreviewTakeout enables the takeout channel for large-file previews.
 	// Takeout has much higher flood limits (faster streaming) but surfaces a
@@ -37,7 +37,18 @@ type settings struct {
 	// Windows=255, macOS=255 (HFS+/APFS), Linux=255 bytes.
 	FilenameMaxLen int `json:"filenameMaxLen"`
 
-	path string
+	path string `json:"-"`
+}
+
+// settingsJSON 是 load 时的辅助结构：可空字段用指针，区分"未设置=用默认"
+// 和"显式 false/0"。只有 load 用，save/snapshot 走 json.Marshal(settings)。
+type settingsJSON struct {
+	PreviewTakeout     bool  `json:"previewTakeout"`
+	TakeoutMinMB       int   `json:"takeoutMinMB"`
+	CacheMaxMB         int   `json:"cacheMaxMB"`
+	ClearPreviewOnExit *bool `json:"clearPreviewOnExit"`
+	MsgIdPrefix        *bool `json:"msgIdPrefix"`
+	FilenameMaxLen     *int  `json:"filenameMaxLen"`
 }
 
 func defaultSettings(path string) *settings {
@@ -59,14 +70,7 @@ func (st *settings) load() error {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	var a struct {
-		PreviewTakeout     bool  `json:"previewTakeout"`
-		TakeoutMinMB       int   `json:"takeoutMinMB"`
-		CacheMaxMB         int   `json:"cacheMaxMB"`
-		ClearPreviewOnExit *bool `json:"clearPreviewOnExit"`
-		MsgIdPrefix        *bool `json:"msgIdPrefix"`
-		FilenameMaxLen     *int  `json:"filenameMaxLen"`
-	}
+	var a settingsJSON
 	if err := json.Unmarshal(b, &a); err != nil {
 		return errors.Wrap(err, "parse settings")
 	}
@@ -91,18 +95,11 @@ func (st *settings) load() error {
 	return nil
 }
 
+// save 直接序列化 settings 的导出字段，无需手写字段映射。
 func (st *settings) save() error {
 	st.mu.RLock()
-	payload := map[string]any{
-		"previewTakeout":     st.PreviewTakeout,
-		"takeoutMinMB":       st.TakeoutMinMB,
-		"cacheMaxMB":         st.CacheMaxMB,
-		"clearPreviewOnExit": st.ClearPreviewOnExit,
-		"msgIdPrefix":        st.MsgIdPrefix,
-		"filenameMaxLen":     st.FilenameMaxLen,
-	}
+	b, err := json.MarshalIndent(st, "", "  ")
 	st.mu.RUnlock()
-	b, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -153,40 +150,37 @@ func (st *settings) filenameMaxLen() int {
 	return st.FilenameMaxLen
 }
 
-// snapshot returns the settings as a JSON-friendly map.
+// snapshot returns the settings as a JSON-friendly map（直接 marshal，无字段映射）。
 func (st *settings) snapshot() map[string]any {
 	st.mu.RLock()
-	defer st.mu.RUnlock()
-	return map[string]any{
-		"previewTakeout":     st.PreviewTakeout,
-		"takeoutMinMB":       st.TakeoutMinMB,
-		"cacheMaxMB":         st.CacheMaxMB,
-		"clearPreviewOnExit": st.ClearPreviewOnExit,
-		"msgIdPrefix":        st.MsgIdPrefix,
-		"filenameMaxLen":     st.FilenameMaxLen,
-	}
+	b, _ := json.Marshal(st)
+	st.mu.RUnlock()
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	return m
 }
 
-// update applies a partial update and persists.
-func (st *settings) update(previewTakeout *bool, takeoutMinMB *int, cacheMaxMB *int, clearPreviewOnExit *bool, msgIdPrefix *bool, filenameMaxLen *int) error {
+// update applies a partial update and persists。接收 updateSettingsRequest（全指针字段，
+// 区分"未发=不改" vs "显式 false/0"），不再逐字段透传六个参数。
+func (st *settings) update(a *updateSettingsRequest) error {
 	st.mu.Lock()
-	if previewTakeout != nil {
-		st.PreviewTakeout = *previewTakeout
+	if a.PreviewTakeout != nil {
+		st.PreviewTakeout = *a.PreviewTakeout
 	}
-	if takeoutMinMB != nil && *takeoutMinMB > 0 {
-		st.TakeoutMinMB = *takeoutMinMB
+	if a.TakeoutMinMB != nil && *a.TakeoutMinMB > 0 {
+		st.TakeoutMinMB = *a.TakeoutMinMB
 	}
-	if cacheMaxMB != nil && *cacheMaxMB > 0 {
-		st.CacheMaxMB = *cacheMaxMB
+	if a.CacheMaxMB != nil && *a.CacheMaxMB > 0 {
+		st.CacheMaxMB = *a.CacheMaxMB
 	}
-	if clearPreviewOnExit != nil {
-		st.ClearPreviewOnExit = *clearPreviewOnExit
+	if a.ClearPreviewOnExit != nil {
+		st.ClearPreviewOnExit = *a.ClearPreviewOnExit
 	}
-	if msgIdPrefix != nil {
-		st.MsgIdPrefix = *msgIdPrefix
+	if a.MsgIdPrefix != nil {
+		st.MsgIdPrefix = *a.MsgIdPrefix
 	}
-	if filenameMaxLen != nil {
-		st.FilenameMaxLen = *filenameMaxLen
+	if a.FilenameMaxLen != nil {
+		st.FilenameMaxLen = *a.FilenameMaxLen
 	}
 	st.mu.Unlock()
 	return st.save()

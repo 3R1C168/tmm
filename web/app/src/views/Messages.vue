@@ -244,6 +244,8 @@ import 'vue-virtual-scroller/dist/vue-virtual-scroller.css'
 import { api } from '../api'
 import { useAppStore } from '../stores/app'
 import { usePlayerStore } from '../stores/player'
+import { fmtBytes } from '../utils/format'
+import { isImage, isVideo, isAudio } from '../utils/media'
 import MediaViewer from '../components/MediaViewer.vue'
 import LazyThumb from '../components/LazyThumb.vue'
 import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp } from 'lucide-vue-next'
@@ -586,10 +588,6 @@ function toggleSelectAlbum(album) {
   selected.value = s
 }
 
-function isImage(media) { return media && /\.(jpe?g|png|gif|webp|bmp)$/i.test(media.name) }
-function isVideo(media) { return media && /\.(mp4|mov|mkv|webm|avi)$/i.test(media.name) }
-function isAudio(media) { return media && (/\.(mp3|m4a|aac|ogg|opus|flac|wav)$/i.test(media.name) || /^audio\//i.test(media.mime || '')) }
-
 function albumText(album) {
   for (const m of album.msgs) { if (m.text && m.text.trim()) return m.text }
   return ''
@@ -842,12 +840,6 @@ async function createTask(sel, extraOpts) {
 }
 
 function typeLabel(t) { return { private: '私聊', group: '群组', channel: '频道' }[t] || t }
-function fmtBytes(n) {
-  if (!n) return '0 B'
-  const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
-  return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${u[i]}`
-}
 function fmtDate(ts) {
   if (!ts) return ''
   return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })

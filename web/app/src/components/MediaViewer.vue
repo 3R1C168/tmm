@@ -79,6 +79,8 @@ import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
 import { api } from '../api'
+import { fmtBytes } from '../utils/format'
+import { isVideo as isVideoMedia } from '../utils/media'
 import { Download, X, TriangleAlert, ChevronLeft, ChevronRight, ZoomOut, ZoomIn, RotateCcw } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -105,7 +107,7 @@ const viewportH = ref(window.innerHeight)
 let plyr = null
 
 const item = computed(() => props.list[index.value] || null)
-const isVideo = computed(() => item.value && /\.(mp4|mov|mkv|webm|avi)$/i.test(item.value.media?.name || ''))
+const isVideo = computed(() => isVideoMedia(item.value?.media))
 const src = computed(() => {
   if (!item.value) return ''
   // 图片用 stream：边下边显示（ServeRange 首块即返回），比 file（等完整下载到磁盘
@@ -443,13 +445,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
   destroyPlyr()
 })
-
-function fmtBytes(n) {
-  if (!n) return '0 B'
-  const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
-  return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${u[i]}`
-}
 </script>
 
 <style scoped>
