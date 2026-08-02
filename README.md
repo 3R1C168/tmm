@@ -8,6 +8,9 @@ English | <a href="README_zh.md">简体中文</a>
 
 Based on [iyear/tdl](https://github.com/iyear/tdl), `tmm` wraps the battle-tested tdl download engine in a local web service. Log in once with your Telegram account, browse your channels in the browser, select messages to download, and watch tasks progress live — all without touching the CLI.
 
+> [!NOTE]
+> **About this project:** built by its author through **vibe coding** (AI-assisted development) — the author does not know how to code. Issues are welcome and will be read, but fixes are not guaranteed; what works is whatever the AI collaboration managed to make work. Contributions (issues, PRs, suggestions) are appreciated.
+
 ## ✨ Features
 
 ### Web UI (browser-based)
