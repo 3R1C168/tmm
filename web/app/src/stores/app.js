@@ -55,6 +55,9 @@ export const useAppStore = defineStore('app', {
     async batchAction(ids, action, deleteFiles = false) {
       return await api.batchTasks(ids, action, deleteFiles) // { results: [{id, ok, error?}] }
     },
+    async fileBatchAction(taskId, action, keys) {
+      return await api.fileBatchAction(taskId, action, keys) // { results: [{key, ok, error?}] }
+    },
     upsertTask(snap) {
       const i = this.tasks.findIndex((t) => t.id === snap.id)
       if (i >= 0) this.tasks.splice(i, 1, snap)

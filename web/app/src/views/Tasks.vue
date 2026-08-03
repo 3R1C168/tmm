@@ -292,6 +292,12 @@
       <button class="ctx-item" @click="ctxRename">
         {{ ctxMenu.batch ? `批量重命名（${ctxMenu.count} 个文件）` : '重命名' }}
       </button>
+      <button v-if="ctxMenu.showPause" class="ctx-item" @click="ctxPauseFiles">
+        {{ ctxMenu.batch ? `暂停选中 ${ctxMenu.count} 个文件` : '暂停此文件' }}
+      </button>
+      <button v-if="ctxMenu.showResume" class="ctx-item" @click="ctxResumeFiles">
+        {{ ctxMenu.batch ? `恢复选中 ${ctxMenu.count} 个文件` : '恢复此文件' }}
+      </button>
       <button class="ctx-item" @click="ctxDelete">删除</button>
     </div>
   </div>
@@ -677,7 +683,7 @@ function onRowClick(r, e) {
 }
 
 // --- 右键菜单：右键文件行弹出，根据选中态显示单文件/批量重命名 ---
-const ctxMenu = reactive({ show: false, x: 0, y: 0, rowId: '', batch: false, count: 0 })
+const ctxMenu = reactive({ show: false, x: 0, y: 0, rowId: '', batch: false, count: 0, showPause: false, showResume: false })
 function onRowContextMenu(r, e) {
   // 右键的文件若不在选中集合里，先选中它（清空其他）——符合资源管理器习惯
   if (!selected.has(r.rowId)) {
@@ -686,6 +692,11 @@ function onRowContextMenu(r, e) {
     anchorRowId = r.rowId
   }
   const isBatch = selected.size > 1
+  const selRows = rows.value.filter(x => selected.has(x.rowId))
+  // 暂停条件：选中中有非 done/failed 文件（running/pending/paused 都可暂停）
+  ctxMenu.showPause = selRows.some(x => !['done', 'failed'].includes(x.file.status))
+  // 恢复条件：选中中有 paused 文件
+  ctxMenu.showResume = selRows.some(x => x.file.status === 'paused')
   ctxMenu.rowId = r.rowId
   ctxMenu.batch = isBatch
   ctxMenu.count = selected.size
@@ -707,6 +718,57 @@ function ctxRename() {
 function ctxDelete() {
   ctxMenu.show = false
   batchDelete()
+}
+// 文件级暂停/恢复：按 taskId 分组，同一任务的文件一批调用 /files/batch。
+// 任务非 running 时恢复文件的「任务重跑」语义由后端 fileBatch 保证
+// （server/task.go fileBatch → m.resume，spec §3.4 step 3），前端无需再触发任务级 resume。
+async function ctxPauseFiles() {
+  ctxMenu.show = false
+  const byTask = groupByTask(selected)
+  let total = 0, fails = 0
+  for (const [taskId, keys] of byTask) {
+    try {
+      const r = await store.fileBatchAction(taskId, 'pause', keys)
+      total += keys.length
+      fails += (r.results || []).filter(x => !x.ok).length
+    } catch (e) {
+      ElMessage.error(e.message)
+      return
+    }
+  }
+  selected.clear()
+  if (fails) ElMessage.warning(`${total - fails}/${total} 暂停成功，${fails} 个失败`)
+  else ElMessage.success(`已暂停 ${total} 个文件`)
+}
+async function ctxResumeFiles() {
+  ctxMenu.show = false
+  const byTask = groupByTask(selected)
+  let total = 0, fails = 0
+  for (const [taskId, keys] of byTask) {
+    try {
+      const r = await store.fileBatchAction(taskId, 'resume', keys)
+      total += keys.length
+      fails += (r.results || []).filter(x => !x.ok).length
+    } catch (e) {
+      ElMessage.error(e.message)
+      return
+    }
+  }
+  selected.clear()
+  if (fails) ElMessage.warning(`${total - fails}/${total} 恢复成功，${fails} 个失败`)
+  else ElMessage.success(`已恢复 ${total} 个文件`)
+}
+// 按 taskId 分组选中的文件 key（rowId 格式为 "taskId/fileKey"）
+function groupByTask(sel) {
+  const map = new Map()
+  for (const rowId of sel) {
+    const idx = rowId.indexOf('/')
+    const taskId = rowId.slice(0, idx)
+    const fileKey = rowId.slice(idx + 1)
+    if (!map.has(taskId)) map.set(taskId, [])
+    map.get(taskId).push(fileKey)
+  }
+  return map
 }
 
 // --- document 级空白点击清空（仅多选模式）---

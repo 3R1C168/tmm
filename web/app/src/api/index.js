@@ -37,6 +37,8 @@ export const api = {
   renameFile: (taskId, key, name, forceMsgIdPrefix = false) =>
     req('POST', `/api/tasks/${taskId}/rename`, { key, name, forceMsgIdPrefix }),
   batchTasks: (ids, action, deleteFiles = false) => req('POST', '/api/tasks/batch', { ids, action, deleteFiles }),
+  fileBatchAction: (taskId, action, keys) =>
+    req('POST', `/api/tasks/${taskId}/files/batch`, { action, keys }),
 
   // accounts
   listAccounts: () => req('GET', '/api/accounts'),
