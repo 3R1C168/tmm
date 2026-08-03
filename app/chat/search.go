@@ -29,6 +29,13 @@ type SearchResult struct {
 
 // SearchMessages 在单个频道内搜索消息文本（含 # 标签）。
 // 服务器端索引（messages.search），频道多大都是亚秒级。
+// SearchMessages 在单个频道内搜索消息文本（含 # 标签）。
+// 服务器端索引（messages.search），频道多大都是亚秒级。
+//
+// 无 # 前缀时（如「热带鱼」）搜「全文 + 标签」并集：Telegram 全文搜索对中文词
+// 匹配不到 #标签 里的内容（热带鱼 0 条 vs #热带鱼 24 条，实测），所以同时搜
+// q（全文）和 #q（标签）合并去重，用户无论输入 # 与否都能找到标签消息。
+// 有 # 前缀时只搜原样（标签精确匹配）。
 func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage,
 	chatID, q string, offsetID, limit int) (*SearchResult, error) {
 
@@ -37,10 +44,35 @@ func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve chat")
 	}
-
 	if limit <= 0 || limit > 100 {
 		limit = 50 // 默认/上限
 	}
+
+	hasHash := strings.Contains(q, "#")
+	if !hasHash {
+		// 无 #：搜 q（全文）+ #q（标签）并集，去重合并
+		full, ferr := searchOnce(ctx, c, manager, peer, q, offsetID, limit)
+		if ferr != nil {
+			return nil, ferr
+		}
+		tag, terr := searchOnce(ctx, c, manager, peer, "#"+q, offsetID, limit)
+		if terr != nil {
+			return nil, terr
+		}
+		return mergeResults(full, tag), nil
+	}
+
+	// 有 #：只搜原样（标签精确匹配）
+	res, err := searchOnce(ctx, c, manager, peer, q, offsetID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// searchOnce 执行一次 messages.search 并转成 SearchResult。
+func searchOnce(ctx context.Context, c *telegram.Client, manager *peers.Manager,
+	peer peers.Peer, q string, offsetID, limit int) (*SearchResult, error) {
 
 	res, err := c.API().MessagesSearch(ctx, &tg.MessagesSearchRequest{
 		Peer:     peer.InputPeer(),
@@ -75,6 +107,32 @@ func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage
 		out = append(out, messageInfoFrom(m))
 	}
 	return &SearchResult{Results: out, NextOffset: nextOffset, Count: ch.Count}, nil
+}
+
+// mergeResults 合并两个搜索结果（无 # 并集），按 msgID 去重。
+// 分页语义：以第一个（全文）的 NextOffset 为主（并集分页复杂，首屏合并足够，
+// 续拉时主查询 offset 前进）。Count 取两源 count 之和减重复（近似）。
+func mergeResults(a, b *SearchResult) *SearchResult {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	seen := make(map[int]bool, len(a.Results)+len(b.Results))
+	merged := make([]*MessageInfo, 0, len(a.Results)+len(b.Results))
+	for _, m := range append(append([]*MessageInfo{}, a.Results...), b.Results...) {
+		if m == nil || seen[m.ID] {
+			continue
+		}
+		seen[m.ID] = true
+		merged = append(merged, m)
+	}
+	return &SearchResult{
+		Results:    merged,
+		NextOffset: a.NextOffset, // 主查询（全文）的游标
+		Count:      a.Count + b.Count - (len(a.Results) + len(b.Results) - len(merged)),
+	}
 }
 
 // FetchMessageAround 按 msgid 取该消息及其往前 limit 条历史，用于跳转定位。
