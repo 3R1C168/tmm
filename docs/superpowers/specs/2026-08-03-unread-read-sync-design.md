@@ -73,7 +73,7 @@ GET /api/chats/{id}/read?max_id={n}
 
 **仿桌面端真实逻辑**：
 
-- 切频道后：`current` 有 `readInboxMaxId` 时，首次加载用 `offset_id = readInboxMaxId + 1`（**第一条未读**）而不是 0（最新）——**进入频道默认停在第一条未读**
+- 切频道后：`current` 有 `readInboxMaxId` 时，首次加载定位到**第一条未读**——**进入频道默认停在第一条未读**。⚠️ **实现修正**：不能用 `offset_id = readInboxMaxId + 1`（getHistory 排他游标 `OffsetID=X` 返回 `id < X`，会加载已读历史漏掉未读区）。实际实现：`offset_id=0`（最新页）+ while 循环往旧翻页直到未读分界（`id <= readInboxMaxId`）进入已加载区，再定位滚动到第一条未读（`readInboxMaxId+1`）
 - 「未读消息」分隔线在未读分界处（`readInboxMaxId` 处，即第一条未读下方）
 - **翻历史**：从分隔线继续加载已读历史（已读历史在未读区下方，翻历史向**下**滚）
 - **无未读**（`readInboxMaxId` 为 0 或无未读）：正常从最新开始，无分隔线
