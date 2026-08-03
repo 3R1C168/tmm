@@ -253,6 +253,7 @@
     <CommentsPanel
       v-if="commentsPanel.show"
       :chat-id="commentsPanel.chatId"
+      :discussion-group-id="commentsPanel.discussionGroupId"
       :msg-id="commentsPanel.msgId"
       @close="commentsPanel.show = false"
     />
@@ -513,12 +514,14 @@ function searchSnippet(text, max = 150) {
 const viewer = ref({ show: false, index: 0 })
 // Telegraph 站内阅读弹层：点击消息卡片上的链接预览打开
 const telegraphReader = ref({ show: false, chatId: '', msgId: 0 })
-// 评论区弹层：点击消息卡片 meta 行的评论数打开（只读）
-const commentsPanel = ref({ show: false, chatId: '', msgId: 0 })
+// 评论区弹层：点击消息卡片 meta 行的评论数打开（只读）。
+// chatId = 帖子所在频道（getReplies 的 peer），discussionGroupId = 讨论组
+// （评论媒体缩略图所在会话），msgId = 频道帖子 ID。
+const commentsPanel = ref({ show: false, chatId: '', discussionGroupId: '', msgId: 0 })
 
 function openComments(m) {
   if (!current.value || !m.replies || !m.replies.channelId) return
-  commentsPanel.value = { show: true, chatId: String(m.replies.channelId), msgId: m.id }
+  commentsPanel.value = { show: true, chatId: String(current.value.id), discussionGroupId: String(m.replies.channelId), msgId: m.id }
 }
 const rangeDialog = ref(false)
 const rangeLoading = ref(false)

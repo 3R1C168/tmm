@@ -20,7 +20,7 @@
               </div>
               <div v-if="c.text" class="cm-text">{{ c.text }}</div>
               <div v-if="c.hasMedia" class="cm-media">
-                <LazyThumb :src="api.mediaThumbUrl(chatId, c.id)" :placeholder="c.media?.stripped?.dataUri || ''" />
+                <LazyThumb :src="api.mediaThumbUrl(discussionGroupId, c.id)" :placeholder="c.media?.stripped?.dataUri || ''" />
               </div>
               <div v-if="c.reactions && c.reactions.length" class="cm-reactions">
                 <span v-for="(rc, i) in c.reactions" :key="i" class="cm-reaction">{{ rc.emoji }} {{ rc.count }}</span>
@@ -47,8 +47,9 @@ import { api } from '../api'
 import LazyThumb from './LazyThumb.vue'
 
 const props = defineProps({
-  chatId: { type: String, required: true }, // 讨论组 ID
-  msgId: { type: Number, required: true },  // 频道帖子 ID
+  chatId: { type: String, required: true },             // 帖子所在频道 ID（getReplies 的 peer）
+  discussionGroupId: { type: String, required: true }, // 讨论组 ID（评论媒体缩略图所在会话）
+  msgId: { type: Number, required: true },             // 频道帖子 ID
 })
 const emit = defineEmits(['close'])
 
