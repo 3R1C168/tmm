@@ -1465,8 +1465,9 @@ function fmtDate(ts) {
 .bubble.media { padding: 4px; overflow: hidden; max-width: 472px; box-sizing: border-box; }
 /* 媒体气泡内：
    .text（正文）左右 8px 文字留白，顶部 8px 与上方媒体拉开呼吸（否则文字紧贴媒体底部）；
-   .meta（时间+下载按钮行）右侧贴齐媒体（0），让下载按钮右边缘 = 媒体右边缘 = bubble 的 4px，
-   左侧 8px 与 .text 文字对齐。上下 0（顶部由 margin-top 隔开，底部贴 bubble 4px）。*/
+   .meta（时间+浏览/评论行）左侧 8px 与 .text 文字对齐，靠左排列（日期紧跟内容，
+   不被推到媒体右边缘——用户反馈含媒体卡片日期太靠右）。上下 0（顶部由 margin-top
+   隔开，底部贴 bubble 4px）。下载按钮 absolute 定位在右外侧，不依赖 meta 对齐。*/
 .bubble.media .text { padding: 0 8px; margin-top: 8px; }
 .bubble.media .meta { padding: 0 0 0 8px; }
 /* 相册气泡同样定宽到拼图宽度，文字在媒体宽度内换行，右侧不留白 */
@@ -1484,7 +1485,7 @@ function fmtDate(ts) {
   unicode-bidi: plaintext;
   line-height: 1.3125;
 }
-.bubble .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); margin-top: 3px; user-select: none; }
+.bubble .meta { display: flex; justify-content: flex-start; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); margin-top: 3px; user-select: none; }
 /* 浏览数：图标和文字 inline-flex 垂直居中对齐 */
 .meta-views { display: inline-flex; align-items: center; gap: 3px; }
 .meta-views svg { display: block; }
@@ -1552,7 +1553,7 @@ function fmtDate(ts) {
 .album-cell .cell-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.3); }
 .album-cell .cell-play svg { filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
 .album-cell .cell-dur { position: absolute; right: 5px; bottom: 5px; background: rgba(0,0,0,.55); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); pointer-events: none; }
-.bubble.album .meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.bubble.album .meta { display: flex; justify-content: flex-start; align-items: center; gap: 8px; }
 /* 回到最新 */
 .back-top {
   position: absolute; right: 24px; bottom: 24px; z-index: 10;
