@@ -60,10 +60,10 @@
       <div class="setrow">
         <div class="setinfo">
           <div class="setname">下载目录</div>
-          <div class="setdesc muted">下载文件存放的位置，留空使用默认目录（程序所在目录的 downloads）。按频道存放开启时，文件存到对应频道子目录。</div>
+          <div class="setdesc muted">下载文件存放的位置，留空使用程序所在目录\downloads</div>
         </div>
         <div class="dl-dir-row">
-          <el-input v-model="settings.downloadDir" placeholder="留空 = 默认目录" clearable size="small" style="min-width: 220px" @change="saveSettings" />
+          <el-input v-model="settings.downloadDir" placeholder="\downloads" clearable size="small" class="dl-dir-input" @change="saveSettings" />
           <el-button size="small" @click="pickDownloadDir">选择文件夹</el-button>
         </div>
       </div>
@@ -191,11 +191,13 @@ async function shutdown() {
 .kv .k { width: 90px; color: var(--text-2); flex: none; }
 .kv .v { word-break: break-all; }
 .dl-dir-row { display: flex; gap: 8px; align-items: center; }
-.setrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.dl-dir-input { width: 240px; }
+.dl-dir-input :deep(.el-input__wrapper) { border-radius: 4px; }
+.setrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 0; }
 .setrow + .setrow { border-top: 1px solid var(--border); }
-.setinfo { flex: 1; min-width: 0; }
+.setinfo { flex: 1; min-width: 0; padding-right: 8px; }
 .setname { font-weight: 600; font-size: 14px; }
-.setdesc { font-size: 12.5px; margin-top: 3px; line-height: 1.5; }
+.setdesc { font-size: 12.5px; margin-top: 4px; line-height: 1.6; }
 .code-hint { background: var(--bg-hover); padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .os-hint { color: var(--text-3); font-size: 11.5px; }
 </style>
