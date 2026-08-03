@@ -30,10 +30,11 @@ const flushInterval = 5 * time.Second
 //
 // do not need mutex for the underlying file because gotd has use syncio.WriteAt
 type writeAt struct {
-	elem     Elem
-	progress Progress
-	partSize int
-	state    *State
+	elem       Elem
+	progress   Progress
+	partSize   int
+	state      *State
+	pauseCheck func(elem Elem) error
 
 	downloaded *atomic.Int64
 
@@ -41,7 +42,7 @@ type writeAt struct {
 	lastFlush time.Time
 }
 
-func newWriteAt(elem Elem, progress Progress, partSize int) *writeAt {
+func newWriteAt(elem Elem, progress Progress, partSize int, pauseCheck func(Elem) error) *writeAt {
 	// Seed the per-file progress counter with bytes already on disk when
 	// resuming, so the UI progress bar starts from the resumed offset instead
 	// of jumping back to 0. Without this, resume re-downloads only the missing
@@ -55,12 +56,18 @@ func newWriteAt(elem Elem, progress Progress, partSize int) *writeAt {
 		progress:   progress,
 		partSize:   partSize,
 		state:      elem.Resume(),
+		pauseCheck: pauseCheck,
 		downloaded: atomic.NewInt64(start),
 		lastFlush:  time.Now(),
 	}
 }
 
 func (w *writeAt) WriteAt(p []byte, off int64) (int, error) {
+	if w.pauseCheck != nil {
+		if err := w.pauseCheck(w.elem); err != nil {
+			return 0, err
+		}
+	}
 	at, err := w.elem.To().WriteAt(p, off)
 	if err != nil {
 		return 0, err
@@ -76,10 +83,12 @@ func (w *writeAt) WriteAt(p []byte, off int64) (int, error) {
 	if at < w.partSize { //  last part(every file only exec once)
 		time.Sleep(time.Millisecond * 200) // to ensure the progress render next time
 	}
-	w.progress.OnDownload(w.elem, ProgressState{
-		Downloaded: w.downloaded.Add(int64(at)),
-		Total:      w.elem.File().Size(),
-	})
+	if w.progress != nil { // nil progress is valid (e.g. unit tests); never nil in production
+		w.progress.OnDownload(w.elem, ProgressState{
+			Downloaded: w.downloaded.Add(int64(at)),
+			Total:      w.elem.File().Size(),
+		})
+	}
 	return at, nil
 }
 

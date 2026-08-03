@@ -27,6 +27,11 @@ type Options struct {
 	Threads  int
 	Iter     Iter
 	Progress Progress
+	// PauseCheck, when non-nil, is invoked before every write of a chunk.
+	// A non-nil error aborts the current file's download (the element is
+	// finalized with that error). It is how a service backend implements
+	// per-file pause. Nil means no check (CLI behavior unchanged).
+	PauseCheck func(elem Elem) error
 }
 
 func New(opts Options) *Downloader {
@@ -103,7 +108,7 @@ func (d *Downloader) download(ctx context.Context, elem Elem) error {
 	_, err := downloader.NewDownloader().WithPartSize(MaxPartSize).
 		Download(client, elem.File().Location()).
 		WithThreads(threads).
-		Parallel(ctx, newWriteAt(elem, d.opts.Progress, MaxPartSize))
+		Parallel(ctx, newWriteAt(elem, d.opts.Progress, MaxPartSize, d.opts.PauseCheck))
 	if err != nil {
 		return errors.Wrap(err, "download")
 	}
@@ -166,7 +171,7 @@ func (d *Downloader) resume(ctx context.Context, client *tg.Client, elem Elem, s
 		zap.String("file", elem.File().Location().String()),
 		zap.Int("missing_pieces", len(missing)))
 
-	w := newWriteAt(elem, d.opts.Progress, MaxPartSize)
+	w := newWriteAt(elem, d.opts.Progress, MaxPartSize, d.opts.PauseCheck)
 
 	wg, wgctx := errgroup.WithContext(ctx)
 	wg.SetLimit(threads)
