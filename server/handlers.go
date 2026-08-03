@@ -315,6 +315,27 @@ func (s *Server) handleBatchTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
+type fileBatchRequest struct {
+	Action string   `json:"action"`
+	Keys   []string `json:"keys"`
+}
+
+// handleFilesBatch applies file-level pause/resume to keys of one task.
+func (s *Server) handleFilesBatch(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var req fileBatchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	results, err := s.tasks.fileBatch(id, req.Action, req.Keys)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
 // handleTaskEvents streams this task's events. It filters the global stream by
 // task id and first replays the current snapshot.
 func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {

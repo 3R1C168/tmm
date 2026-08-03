@@ -339,6 +339,99 @@ func (m *taskManager) Batch(ctx context.Context, ids []string, action string, de
 	return results
 }
 
+// FileBatchResult reports the outcome of one file key in a file-level batch op.
+type FileBatchResult struct {
+	Key   string `json:"key"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// fileBatch applies a file-level pause/resume to the given keys of one task.
+// action: "pause" | "resume". Per-key results, not transactional.
+//
+// 暂停：仅 FileRunning/FilePending → FilePaused + UserPaused=true（文件级手动暂停标记）。
+//        FileDone/FileFailed 不动（返回 ok=false）。
+// 恢复：仅 FilePaused → FilePending + UserPaused=false（任务级暂停产生的 paused 也允许恢复）。
+//        FileDone/FileFailed 不动。
+// 任务 running 时文件级暂停/恢复即时生效：
+//   暂停→iter.PauseKeys（已产出的正在下载文件由 PauseCheck 钩子即刻中断）；
+//   恢复→iter.Unpause（requeue 即时续传）。非 running 时只改状态，下次任务 resume 生效。
+func (m *taskManager) fileBatch(taskID string, action string, keys []string) ([]FileBatchResult, error) {
+	if action != "pause" && action != "resume" {
+		return nil, errors.Errorf("unknown action: %s", action)
+	}
+	if len(keys) == 0 {
+		return nil, errors.New("keys must not be empty")
+	}
+	task, ok := m.srv.store.get(taskID)
+	if !ok {
+		return nil, errors.New("task not found")
+	}
+
+	results := make([]FileBatchResult, 0, len(keys))
+	// 收集受影响 key 的集合，供 iter 调用
+	affected := make([]string, 0, len(keys))
+
+	task.mu.Lock()
+	byKey := make(map[string]*FileEntry, len(task.Files))
+	for _, f := range task.Files {
+		if f != nil {
+			byKey[f.Key] = f
+		}
+	}
+	for _, key := range keys {
+		fe := byKey[key]
+		r := FileBatchResult{Key: key}
+		switch action {
+		case "pause":
+			if fe == nil {
+				r.Error = "file not found in task"
+			} else if fe.Status == FileDone || fe.Status == FileFailed {
+				r.Error = "file already done/failed"
+			} else {
+				fe.Status = FilePaused
+				fe.UserPaused = true
+				affected = append(affected, key)
+				r.OK = true
+			}
+		case "resume":
+			if fe == nil {
+				r.Error = "file not found in task"
+			} else if fe.Status == FilePaused {
+				fe.Status = FilePending
+				fe.UserPaused = false
+				affected = append(affected, key)
+				r.OK = true
+			} else {
+				r.Error = "file not paused"
+			}
+		}
+		results = append(results, r)
+	}
+	// 若任务当前在跑，让 iter 立即响应（iterForTask 在 Task 4+5 6c 实现）
+	iter := m.iterForTask(taskID)
+	task.mu.Unlock()
+
+	if iter != nil {
+		switch action {
+		case "pause":
+			iter.PauseKeys(keysToMsgKeys(affected))
+		case "resume":
+			for _, k := range affected {
+				if mk, ok := parseMsgKey(k); ok {
+					iter.Unpause(mk)
+				}
+			}
+		}
+	}
+
+	if err := m.srv.store.upsert(task); err != nil {
+		return nil, err
+	}
+	m.srv.publishTask(task, "file")
+	return results, nil
+}
+
 // resume re-enqueues a paused/failed/interrupted task. Partial downloads are
 // continued from .tdlstate files and the KV resume record.
 func (m *taskManager) resume(ctx context.Context, id string) error {
@@ -501,8 +594,11 @@ func (m *taskManager) run(id string) {
 		// （磁盘已有同名同大小）会被 iter 跳过、不触发 OnAdd，预填的 pending
 		// FileEntry 残留。把这些标为 done，语义正确（文件确实在磁盘上），
 		// 也避免「task done 但有 pending 文件」的矛盾显示。
+		//
+		// 注意：FilePaused 不在此列——文件级手动暂停（UserPaused=true）的文件
+		// 保持 paused 留待恢复，不能被强制标 done（否则失去恢复能力）。
 		for _, f := range task.Files {
-			if f.Status == FilePending || f.Status == FilePaused {
+			if f.Status == FilePending {
 				f.Status = FileDone
 			}
 		}

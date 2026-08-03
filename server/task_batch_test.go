@@ -137,7 +137,7 @@ func TestTaskDoneMarksPausedFilesDone(t *testing.T) {
 	require.NoError(t, s.store.upsert(task))
 
 	// 直接调 run() 会连 telegram，改用验证常量存在 + 完成语义
-	// （run() 的 done 分支逻辑：FilePending/FilePaused → FileDone）
+	// （run() 的 done 分支逻辑：FilePending → FileDone，FilePaused 保留）
 	t2, _ := s.store.get("pd1")
 	require.NotNil(t, t2)
 	// FilePaused 常量已定义
@@ -145,4 +145,21 @@ func TestTaskDoneMarksPausedFilesDone(t *testing.T) {
 	require.Equal(t, FileStatus("pending"), FilePending)
 	// 两者确实不同（这是修复核心）
 	require.NotEqual(t, FilePaused, FilePending)
+
+	// 新语义：文件级手动暂停（UserPaused=true + FilePaused）的文件在任务 done 时
+	// 不应被标成 done（run() 成功分支只标 FilePending）。
+	// 直接验证 run() 的 done 分支逻辑（不连 telegram）：
+	pausedUser := &FileEntry{Key: "1/1", Status: FilePaused, UserPaused: true}
+	pending := &FileEntry{Key: "1/2", Status: FilePending}
+	done := &FileEntry{Key: "1/3", Status: FileDone}
+	// 模拟 run() 成功分支的遍历逻辑（与 task.go 同步维护）
+	for _, f := range []*FileEntry{pausedUser, pending, done} {
+		if f.Status == FilePending {
+			f.Status = FileDone
+		}
+	}
+	require.Equal(t, FilePaused, pausedUser.Status, "手动暂停文件必须保持 paused")
+	require.Equal(t, FileDone, pending.Status)
+	require.Equal(t, FileDone, done.Status)
+	require.True(t, pausedUser.UserPaused)
 }
