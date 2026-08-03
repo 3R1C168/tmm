@@ -617,6 +617,8 @@ let probedChatId = null // 已探测过的频道，切回不重复探测
 const chatState = new Map()
 let msgAbort = null
 let retryTimer = null // 503 重连重试的定时器，切频道时清除
+// 滚动视口自动已读的节流定时器：滚动停止 500ms 后调一次，避免每滚一像素就 RPC
+let autoReadDebounce = null
 
 const allFilteredCount = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -714,6 +716,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocMouseDown)
   if (chatObserver) { chatObserver.disconnect(); chatObserver = null }
   if (searchTimer) clearTimeout(searchTimer)
+  if (autoReadDebounce) clearTimeout(autoReadDebounce)
   if (downloadHistoryEvents) { downloadHistoryEvents(); downloadHistoryEvents = null }
   abortPending()
 })
@@ -929,6 +932,9 @@ function onMsgScroll() {
   }
   showBackTop.value = el.scrollTop > 400
   updateInUnreadArea()
+  // 滚动视口自动已读：节流（停止滚动 500ms 后调一次）+ maxId 去重
+  if (autoReadDebounce) clearTimeout(autoReadDebounce)
+  autoReadDebounce = setTimeout(maybeAutoReadVisible, 500)
 }
 
 // vue-virtual-scroller 的 update 事件：参数为 [startIndex, endIndex, visibleStartIndex, visibleEndIndex]
@@ -975,16 +981,30 @@ function jumpUnread() {
     scrollToMsg(unreadFirstId.value)
   }
 }
-async function markReadCurrent(force = false) {
-  if (!current.value || !unreadLastId.value) return
-  // force=true（手动模式工具栏「标记已读」）跳过 autoRead 检查；否则手动模式只跳转不自动已读
-  if (!force && !settings.value.autoRead) return
+// 公共已读：调 RPC + 推进本地分界 + 刷新徽标。maxId 是「标记 ≤maxId 已读」。
+async function doMarkRead(maxId) {
+  if (!current.value || !maxId) return
   try {
-    await api.markRead(String(current.value.id), unreadLastId.value)
-    // 更新本地未读状态：ReadInboxMaxID 推进到最新 → 无未读
-    current.value.readInboxMaxId = unreadLastId.value
+    await api.markRead(String(current.value.id), maxId)
+    current.value.readInboxMaxId = maxId // 推进本地未读分界
     refreshChatsUnread() // 刷新会话列表未读徽标
   } catch { /* 静默 */ }
+}
+
+async function markReadCurrent(force = false) {
+  if (!current.value || !unreadLastId.value) return
+  if (!force && !settings.value.autoRead) return
+  await doMarkRead(unreadLastId.value)
+}
+
+// 滚动视口自动已读（仅自动模式）：视口内最大消息 id > 当前已读分界才推进。
+// 未读按已查看条数递减：服务器端 maxID 语义 = ≤maxID 全读，maxID 之后即剩余未读。
+async function maybeAutoReadVisible() {
+  if (!settings.value.autoRead) return          // 仅自动模式
+  if (!current.value?.readInboxMaxId) return    // 无未读分界（无未读/未定位）
+  const maxId = visibleMaxMsgId()
+  if (!maxId || maxId <= current.value.readInboxMaxId) return // 无新推进（去重）
+  await doMarkRead(maxId)
 }
 function refreshChatsUnread() {
   // 刷新会话列表未读徽标（api.listChats(true) 或本地更新）
