@@ -337,6 +337,7 @@ const searchCount = ref(0)
 const searchLoading = ref(false)
 const searchHasMore = ref(false)
 let searchTimer = null
+let searchSeq = 0 // 搜索请求序号：被丢弃的旧响应不得误清新请求的 loading 态
 
 // 空查询校验（spec §3.0）：去 # 后仍有非空白字符才有效，否则不发起请求
 function validSearchQuery(q) {
@@ -356,10 +357,13 @@ function onSearchInput() {
 async function doSearch(offset) {
   if (!current.value || !validSearchQuery(searchQuery.value)) return
   const chatId = current.value.id
+  const q = searchQuery.value // 捕获发起时的查询词
+  const seq = ++searchSeq
   searchLoading.value = true
   try {
-    const d = await api.searchMessages(chatId, { q: searchQuery.value, offset })
-    if (current.value?.id !== chatId) return // 已切走：丢弃旧频道结果
+    const d = await api.searchMessages(chatId, { q, offset })
+    // 竞态守卫：响应时查询词或频道已变则丢弃（旧词响应不得覆盖新词结果）
+    if (current.value?.id !== chatId || searchQuery.value !== q) return
     if (offset === 0) {
       searchResults.value = d.results || []
       searchOffset.value = d.nextOffset || 0
@@ -373,7 +377,8 @@ async function doSearch(offset) {
     if (e.name === 'AbortError') return
     ElMessage.error(e.message || '搜索失败')
   } finally {
-    searchLoading.value = false
+    // 只有最新一次请求才允许清 loading，避免被丢弃的旧响应误清新请求的加载态
+    if (seq === searchSeq) searchLoading.value = false
   }
 }
 
@@ -389,6 +394,15 @@ function clearSearch() {
   searchResults.value = []
   searchHasMore.value = false
 }
+// 点击搜索框/下拉以外区域关闭下拉（document 级 mousedown，仿 Tasks.vue onDocClick 模式）。
+// 下拉本身也视为搜索组件的一部分：点滚动条/空白处不清，点结果项由 jumpToResult 关闭。
+function onDocMouseDown(e) {
+  if (!searchOpen.value) return
+  const t = e.target
+  if (t && t.closest && !t.closest('.chat-search-inline') && !t.closest('.search-dropdown')) {
+    closeSearch()
+  }
+}
 // 滚动结果到底部续拉
 function onSearchScroll(e) {
   const el = e.target
@@ -399,15 +413,17 @@ function onSearchScroll(e) {
 // 点击结果：取上下文 → 替换列表 → 定位
 async function jumpToResult(res) {
   if (!current.value) return
+  const chatId = current.value.id // 捕获跳转发起时的频道
   closeSearch()
   try {
-    const d = await api.chatAround(current.value.id, res.id, 50)
+    const d = await api.chatAround(chatId, res.id, 50)
+    // 竞态守卫：请求期间切了频道则丢弃，避免旧频道上下文覆盖新频道列表/污染 chatState
+    if (current.value?.id !== chatId) return
     const msgs = d.messages || []
     if (!msgs.length) {
       ElMessage.warning('消息不存在或已删除')
       return
     }
-    const chatId = current.value.id
     messages.value = msgs // 替换列表（进入目标上下文视图，spec §3.4）
     nextCursor.value = msgs[msgs.length - 1].id // 对齐：往前可继续加载
     hasMore.value = true
@@ -508,11 +524,13 @@ onMounted(async () => {
   await loadChats()
   await nextTick()
   setupChatObserver()
+  document.addEventListener('mousedown', onDocMouseDown) // 外部点击关闭搜索下拉
 })
 
 // 组件卸载时清理：IntersectionObserver、待中的消息请求、重试定时器，
 // 避免 observer 泄漏和卸载后 ref 仍被写入。
 onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocMouseDown)
   if (chatObserver) { chatObserver.disconnect(); chatObserver = null }
   if (searchTimer) clearTimeout(searchTimer)
   abortPending()
