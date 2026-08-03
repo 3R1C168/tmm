@@ -66,13 +66,19 @@ func (s *store) load(ctx context.Context) error {
 }
 
 // save writes the current task list atomically. Caller must hold no lock.
+//
+// 整个 marshal+写盘+rename 都在 s.mu 内串行化：worker 的 run() 与 handler
+// （fileBatch/resume/pause）可能并发 upsert，若写盘在锁外，两个 save() 同时
+// rename 到同一个 server-tasks.json 会在 Windows 上因目标句柄占用而失败。
+// tmp 用唯一后缀进一步避免残留 .tmp 冲突。
 func (s *store) save() error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	f := storeFile{Tasks: make([]*Task, 0, len(s.order))}
 	for _, id := range s.order {
 		f.Tasks = append(f.Tasks, s.tasks[id])
 	}
-	s.mu.Unlock()
 
 	b, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
@@ -85,9 +91,6 @@ func (s *store) save() error {
 		}
 	}
 
-	// tmp 用唯一后缀：worker 的 run() 与 handler（fileBatch/resume/pause）可能并发
-	// upsert，若共用固定 .tmp 名会互相覆盖/撞 rename（Windows 上句柄未释放时报错）。
-	// 每次写用新 tmp 文件，rename 原子替换，天然容忍并发。
 	tmp := fmt.Sprintf("%s.tmp.%d", s.path, time.Now().UnixNano())
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return errors.Wrap(err, "write task store")
