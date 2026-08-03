@@ -620,18 +620,7 @@ func (m *taskManager) run(id string) {
 	switch {
 	case err == nil:
 		task.Status = StatusDone
-		// dl.Run 成功完成 = iter 把所有消息都处理了。但 SkipSame 命中的文件
-		// （磁盘已有同名同大小）会被 iter 跳过、不触发 OnAdd，预填的 pending
-		// FileEntry 残留。把这些标为 done，语义正确（文件确实在磁盘上），
-		// 也避免「task done 但有 pending 文件」的矛盾显示。
-		//
-		// 注意：FilePaused 不在此列——文件级手动暂停（UserPaused=true）的文件
-		// 保持 paused 留待恢复，不能被强制标 done（否则失去恢复能力）。
-		for _, f := range task.Files {
-			if f.Status == FilePending {
-				f.Status = FileDone
-			}
-		}
+		finalizeDoneLocked(task)
 	case errors.Is(err, context.Canceled):
 		task.Status = StatusPaused
 	default:
@@ -661,6 +650,33 @@ func (m *taskManager) fail(task *Task, err error) {
 	task.mu.Unlock()
 	m.srv.publishTask(task, "task")
 	_ = m.srv.store.upsert(task)
+}
+
+// finalizeDoneLocked 在任务成功完成（dl.Run err==nil → StatusDone）时收尾
+// 残留的 FileEntry，调用方必须已持有 task.mu。
+//
+// dl.Run 成功 = iter 把所有消息都处理了，但两类文件不会触发 OnAdd/OnDone、
+// 状态停在中间：
+//   - FilePending：SkipSame 命中（磁盘已有同名同大小）/无媒体/filter 跳过，
+//     预填的排队条目残留；
+//   - FilePaused && !UserPaused：任务级暂停时正在下载的文件被中断
+//     （OnDone 收到 context.Canceled → FilePaused，UserPaused 不置位），
+//     任务恢复重跑时该文件又被 SkipSame 命中而跳过，残留为 paused。
+//
+// 两者语义一致：文件确实已在磁盘上（SkipSame 命中即同名同大小），标 done
+// 正确，也避免「task done 但有 pending/paused 文件」的矛盾显示。
+//
+// 注意：FilePaused && UserPaused 不在收尾之列——那是用户文件级手动暂停
+// （errFilePaused 哨兵）的文件，必须保持 paused 留待恢复，否则失去恢复能力。
+func finalizeDoneLocked(task *Task) {
+	for _, f := range task.Files {
+		if f == nil {
+			continue
+		}
+		if f.Status == FilePending || (f.Status == FilePaused && !f.UserPaused) {
+			f.Status = FileDone
+		}
+	}
 }
 
 // shutdown cancels the running task and stops the worker.
