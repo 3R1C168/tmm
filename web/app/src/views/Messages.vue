@@ -118,8 +118,12 @@
               :data-index="index"
             >
               <div class="msg-row">
+                <!-- 未读分隔线：未读消息与已读消息的分界 -->
+                <div v-if="item.type === 'divider'" class="unread-divider">
+                  <span>未读消息</span>
+                </div>
                 <!-- 相册（groupedId 聚合） -->
-                <div v-if="item.type === 'album'" class="msg" :class="{ out: item.out }">
+                <div v-else-if="item.type === 'album'" class="msg" :class="{ out: item.out }">
                   <el-checkbox
                     class="pick"
                     :model-value="item.msgs.every((x) => selected.has(x.id))"
@@ -593,7 +597,15 @@ const displayItems = computed(() => {
   const chatKey = current.value?.id || '0'
   const items = []
   const seen = new Map()
+  // 未读分界：readInboxMaxId 处插入「未读消息」分隔线（列表倒序，第一条
+  // id <= readInboxMaxId 的消息即已读区顶部，在其前插入）。
+  const readBoundary = current.value?.readInboxMaxId > 0 ? current.value.readInboxMaxId : 0
+  let dividerAdded = false
   for (const m of messages.value) {
+    if (readBoundary > 0 && !dividerAdded && m.id <= readBoundary) {
+      items.push({ type: 'divider', key: chatKey + '-divider-' + m.id })
+      dividerAdded = true
+    }
     if (m.groupedId && m.hasMedia && (isImage(m.media) || isVideo(m.media))) {
       if (seen.has(m.groupedId)) {
         items[seen.get(m.groupedId)].msgs.push(m)
@@ -703,7 +715,8 @@ function selectChat(c) {
     messages.value = []
     nextCursor.value = 0
     hasMore.value = false
-    reloadMessages()
+    // 首次进入且频道有未读：从未读起点定位（reloadMessages 里 readInboxMaxId 生效）
+    reloadMessages(false, true)
   }
 }
 
@@ -739,17 +752,20 @@ function warmupThumbs() {
   for (let k = 0; k < 4; k++) setTimeout(step, k * 80)
 }
 
-async function reloadMessages(refresh = false) {
+async function reloadMessages(refresh = false, positionAtUnread = false) {
   if (!current.value) return
-  await loadMessagesWithRetry(current.value.id, refresh)
+  await loadMessagesWithRetry(current.value.id, refresh, positionAtUnread)
 }
 
 // loadMessagesWithRetry 加载消息，遇到 503（连接重连中）时自动轮询重试。
 // 最多重试 8 次，间隔 3s（总上限 ~24s），期间显示"连接重连中"提示。
 // 成功或非 503 错误则正常返回。切频道时 abortPending 清除定时器终止循环。
-async function loadMessagesWithRetry(chatId, refresh) {
+// positionAtUnread：首次进入时定位到未读起点（readInboxMaxId+1）。
+async function loadMessagesWithRetry(chatId, refresh, positionAtUnread = false) {
   const MAX_RETRY = 8
   const RETRY_INTERVAL = 3000
+  // 首次加载定位：有未读时从第一条未读（readInboxMaxId+1）开始，仿桌面端
+  const firstUnreadOffset = positionAtUnread && current.value?.readInboxMaxId > 0 ? current.value.readInboxMaxId + 1 : 0
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     if (current.value?.id !== chatId) return // 已切走
     abortPending()
@@ -763,7 +779,7 @@ async function loadMessagesWithRetry(chatId, refresh) {
       nextTick(() => { const el = scrollEl(); if (el) el.scrollTop = 0 })
     }
     try {
-      const r = await api.listMessages(chatId, { limit: 50, mediaOnly: mediaOnly.value, refresh, signal })
+      const r = await api.listMessages(chatId, { offsetId: firstUnreadOffset, limit: 50, mediaOnly: mediaOnly.value, refresh, signal })
       if (current.value?.id !== chatId) return // 已切走
       reconnecting.value = false
       msgsLoading.value = false
@@ -1277,6 +1293,14 @@ function fmtDate(ts) {
 @keyframes skel-wave { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes reconnect-pulse { 0%,100% { opacity: .5 } 50% { opacity: 1 } }
 .msg-row { padding: 3px 0; width: 100%; }
+/* 未读分隔线：居中短横线 + 文字，仿桌面端「未读消息」标记 */
+.unread-divider {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 0; font-size: 11px; color: var(--accent);
+}
+.unread-divider::before, .unread-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--accent);
+}
 /* telegram-tt 布局：flex 行，内容定宽，CSS max-width 封顶 */
 .msg { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
 .msg.out { flex-direction: row-reverse; margin-left: auto; }
