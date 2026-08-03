@@ -50,7 +50,7 @@
               placeholder="搜索本频道…"
               @input="onSearchInput"
               @compositionstart="composing = true"
-              @compositionend="composing = false; onSearchInput()"
+              @compositionend="composing = false; nextTick(onSearchInput)"
               @keydown.esc="closeSearch"
               @focus="searchOpen = true"
             />
