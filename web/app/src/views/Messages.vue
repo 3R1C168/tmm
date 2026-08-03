@@ -63,7 +63,7 @@
           <button
             class="chat-media-btn"
             :class="{ active: mediaOnly }"
-            @click="mediaOnly = !mediaOnly; reloadMessages()"
+            @click="mediaOnly = !mediaOnly; reloadMessages(true)"
             title="只看媒体"
           >只看媒体</button>
           <el-button size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
@@ -119,10 +119,8 @@
             :min-item-size="320"
             class="scroller"
             key-field="key"
-            emit-update
             @scroll="onMsgScroll"
             @scroll-end="onMsgScroll"
-            @update="onScrollerUpdate"
             v-slot="{ item, index, active }"
           >
             <DynamicScrollerItem
@@ -621,10 +619,10 @@ const displayItems = computed(() => {
   const chatKey = current.value?.id || '0'
   const items = []
   const seen = new Map()
-  // 未读分界：readInboxMaxId 处插入「未读消息」分隔线（列表倒序，第一条
+  // 未读分界：readInboxMaxId 处插入「以上是未读消息」分隔线（列表倒序，第一条
   // id <= readInboxMaxId 的消息即已读区顶部，在其前插入）。
   // 仅在真有未读（hasUnread：未读起点 <= 已加载最新）时插入——全已读
-  // （readInboxMaxId = 最新，如刚 markRead 后）时顶部不应出现"未读消息"线。
+  // （readInboxMaxId = 最新，如刚 markRead 后）时顶部不应出现该分隔线。
   const readBoundary = current.value?.readInboxMaxId > 0 ? current.value.readInboxMaxId : 0
   let dividerAdded = false
   for (const m of messages.value) {
@@ -904,10 +902,6 @@ function onMsgScroll() {
   }
   showBackTop.value = el.scrollTop > 400
 }
-
-// vue-virtual-scroller 的 update 事件：参数为 [startIndex, endIndex, visibleStartIndex, visibleEndIndex]
-// 无自动已读后仅保留占位（DynamicScroller emit-update 需要），不追踪视口。
-function onScrollerUpdate() {}
 
 // 公共已读：调 RPC + 推进本地分界 + 刷新徽标。maxId 是「标记 ≤maxId 已读」。
 async function doMarkRead(maxId) {
