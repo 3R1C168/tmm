@@ -44,6 +44,16 @@
             <div class="sub muted">{{ typeLabel(current.type) }}<span v-if="selected.size"> · 已选 {{ selected.size }} 条</span></div>
           </div>
           <div class="spacer" />
+          <div class="chat-search-inline" :class="{ open: searchOpen }">
+            <input
+              v-model="searchQuery"
+              placeholder="搜索本频道…"
+              @input="onSearchInput"
+              @keydown.esc="closeSearch"
+              @focus="searchOpen = true"
+            />
+            <button v-if="searchQuery" class="search-clear" @click="clearSearch">✕</button>
+          </div>
           <el-checkbox v-model="mediaOnly" size="small" @change="reloadMessages">只看媒体</el-checkbox>
           <button class="chat-refresh-btn" :disabled="msgsLoading" @click="reloadMessages(true)" title="刷新消息">
             <RefreshCw v-if="!msgsLoading" :size="14" />
@@ -52,6 +62,25 @@
           <el-button type="primary" size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
           <el-button size="small" @click="rangeDialog = true">按范围下载</el-button>
         </header>
+
+        <!-- 频道内搜索下拉：覆盖在消息区上方，独立于消息列表状态 -->
+        <div v-if="searchOpen && validSearchQuery(searchQuery)" class="search-dropdown" @scroll="onSearchScroll">
+          <div class="search-drop-head">
+            <span>{{ searchCount }} 条匹配</span>
+            <span v-if="searchLoading" class="muted">搜索中…</span>
+          </div>
+          <div v-for="res in searchResults" :key="res.id" class="search-item" @click="jumpToResult(res)">
+            <div v-if="res.hasMedia" class="search-thumb">
+              <LazyThumb :src="api.mediaThumbUrl(current.id, res.id)" :placeholder="res.media?.stripped?.dataUri || ''" />
+            </div>
+            <div class="search-item-body">
+              <div class="search-item-text">{{ firstLine(res.text) || '(无文本)' }}</div>
+              <div class="search-item-date muted">{{ dateStrFromTs(res.date) }}</div>
+            </div>
+          </div>
+          <div v-if="!searchResults.length && !searchLoading" class="muted search-empty">无匹配消息</div>
+          <div v-if="searchHasMore" class="muted search-more">加载更多…</div>
+        </div>
 
         <div class="msg-scroll">
           <div v-if="reconnecting" class="loading-tip reconnect-tip">连接重连中，自动重试…</div>
@@ -299,6 +328,111 @@ const scrollerRef = ref(null) // DynamicScroller，用于"定位到消息" + 滚
 // 连接重连中提示：后端返回 503 时置 true，前端自动轮询重试
 const reconnecting = ref(false)
 
+// --- 频道内搜索状态（独立于 messages/session，不污染现有分页/筛选） ---
+const searchOpen = ref(false)
+const searchQuery = ref('')
+const searchResults = ref([])
+const searchOffset = ref(0)
+const searchCount = ref(0)
+const searchLoading = ref(false)
+const searchHasMore = ref(false)
+let searchTimer = null
+
+// 空查询校验（spec §3.0）：去 # 后仍有非空白字符才有效，否则不发起请求
+function validSearchQuery(q) {
+  return q.replace(/#/g, '').trim().length > 0
+}
+
+function onSearchInput() {
+  clearTimeout(searchTimer)
+  if (!validSearchQuery(searchQuery.value)) {
+    searchResults.value = []
+    searchHasMore.value = false
+    return // 空查询不发起请求（spec §3.0）
+  }
+  searchTimer = setTimeout(() => doSearch(0), 300) // 防抖
+}
+
+async function doSearch(offset) {
+  if (!current.value || !validSearchQuery(searchQuery.value)) return
+  const chatId = current.value.id
+  searchLoading.value = true
+  try {
+    const d = await api.searchMessages(chatId, { q: searchQuery.value, offset })
+    if (current.value?.id !== chatId) return // 已切走：丢弃旧频道结果
+    if (offset === 0) {
+      searchResults.value = d.results || []
+      searchOffset.value = d.nextOffset || 0
+      searchCount.value = d.count || 0
+    } else {
+      searchResults.value.push(...(d.results || []))
+      searchOffset.value = d.nextOffset || 0
+    }
+    searchHasMore.value = searchOffset.value > 0
+  } catch (e) {
+    if (e.name === 'AbortError') return
+    ElMessage.error(e.message || '搜索失败')
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+function closeSearch() {
+  clearTimeout(searchTimer)
+  searchOpen.value = false
+  searchQuery.value = ''
+  searchResults.value = []
+  searchHasMore.value = false
+}
+function clearSearch() {
+  searchQuery.value = ''
+  searchResults.value = []
+  searchHasMore.value = false
+}
+// 滚动结果到底部续拉
+function onSearchScroll(e) {
+  const el = e.target
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100 && searchHasMore.value && !searchLoading.value) {
+    doSearch(searchOffset.value)
+  }
+}
+// 点击结果：取上下文 → 替换列表 → 定位
+async function jumpToResult(res) {
+  if (!current.value) return
+  closeSearch()
+  try {
+    const d = await api.chatAround(current.value.id, res.id, 50)
+    const msgs = d.messages || []
+    if (!msgs.length) {
+      ElMessage.warning('消息不存在或已删除')
+      return
+    }
+    const chatId = current.value.id
+    messages.value = msgs // 替换列表（进入目标上下文视图，spec §3.4）
+    nextCursor.value = msgs[msgs.length - 1].id // 对齐：往前可继续加载
+    hasMore.value = true
+    // 同步会话内存缓存（chatState 为 per-chat 会话内存），切走再切回仍停留在目标上下文
+    chatState.set(chatId, {
+      messages: msgs,
+      nextCursor: msgs[msgs.length - 1].id,
+      hasMore: true,
+      mediaOnly: mediaOnly.value,
+      scrollTop: 0,
+    })
+    await nextTick()
+    scrollToMsg(res.id)
+  } catch (e) {
+    ElMessage.error(e.message || '跳转失败')
+  }
+}
+// firstLine 取文本首行并截断（与 Tasks.vue 同款，搜索下拉里显示一行摘要）
+function firstLine(text, max = 30) {
+  if (!text) return ''
+  const line = String(text).split(/\r?\n/)[0].trim()
+  if (!line) return ''
+  return line.length > max ? line.slice(0, max) + '…' : line
+}
+
 const viewer = ref({ show: false, index: 0 })
 const rangeDialog = ref(false)
 const rangeLoading = ref(false)
@@ -380,6 +514,7 @@ onMounted(async () => {
 // 避免 observer 泄漏和卸载后 ref 仍被写入。
 onBeforeUnmount(() => {
   if (chatObserver) { chatObserver.disconnect(); chatObserver = null }
+  if (searchTimer) clearTimeout(searchTimer)
   abortPending()
 })
 // 滚动元素 = DynamicScroller 的根 .vue-recycle-scroller（自带 overflow-y:auto）
@@ -408,6 +543,7 @@ async function loadChats(refresh = false) {
 function selectChat(c) {
   // 先 abort 旧请求，防止旧数据覆盖新会话
   abortPending()
+  closeSearch() // 切频道重置搜索状态，避免旧频道的结果残留
   if (current.value) saveChatState(current.value.id)
   current.value = c
   selected.value = new Set()
@@ -877,6 +1013,52 @@ function fmtDate(ts) {
 .chat-header .title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-header .sub { font-size: 12px; }
 .chat-header .spacer { flex: 1; }
+
+/* 频道内全文搜索：头部内联搜索框 */
+.chat-search-inline { flex: none; position: relative; }
+.chat-search-inline input {
+  width: 180px; height: 32px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--text);
+  padding: 0 28px 0 12px; outline: none; font-size: 13px;
+  transition: border-color .15s, box-shadow .15s, width .2s;
+}
+.chat-search-inline input::placeholder { color: var(--text-3); }
+.chat-search-inline input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chat-search-inline.open input { width: 230px; }
+.search-clear {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; border: none; border-radius: 50%;
+  background: var(--bg-hover); color: var(--text-3);
+  font-size: 11px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: .13s;
+}
+.search-clear:hover { background: var(--accent); color: #fff; }
+
+/* 搜索结果下拉：覆盖在消息区上方 */
+.search-dropdown {
+  position: absolute; top: 56px; left: 18px; right: 18px; z-index: 20;
+  max-height: 380px; overflow-y: auto;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 6px;
+}
+.search-drop-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px 6px; font-size: 12px; color: var(--text-3);
+}
+.search-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: var(--radius-sm);
+  cursor: pointer; transition: .13s;
+}
+.search-item:hover { background: var(--bg-hover); }
+.search-thumb { flex: none; width: 36px; height: 36px; border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-hover); }
+.search-item-body { flex: 1; min-width: 0; }
+.search-item-text { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-item-date { font-size: 11px; margin-top: 2px; }
+.search-empty, .search-more { text-align: center; padding: 12px 0; font-size: 12px; }
 
 .msg-scroll { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0; }
 /* DynamicScroller 自带 overflow-y:auto 作为唯一滚动容器（.vue-recycle-scroller），
