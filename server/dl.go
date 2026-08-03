@@ -20,6 +20,12 @@ import (
 
 const defaultTemplate = `{{ .DialogID }}_{{ .MessageID }}_{{ filenamify .FileName }}`
 
+// errFilePaused is the sentinel the PauseCheck returns when the user manually
+// pauses a single file. It is deliberately NOT context.Canceled, so the
+// downloader treats it as a single-file abort (reported to OnDone, task keeps
+// running) instead of a whole-task cancellation.
+var errFilePaused = errors.New("file paused by user")
+
 // sseThrottle is how often per-file byte progress is pushed to the UI.
 const sseThrottle = 200 * time.Millisecond
 
@@ -40,18 +46,18 @@ type progressAdapter struct {
 	// 之前在 OnDownload 里按 SSE push 触发计算，分子(全局 total 增量)与
 	// 分母(触发时局部 dt)时间窗错配，多文件并发时瞬时值会飙高数倍。
 	speedMu       sync.Mutex
-	speedEwma     int64     // EWMA 平滑后的速率 bytes/sec
-	lastSample    int64     // 上次采样的 total，用于算 1 秒增量
-	sampleStarted bool      // sampler goroutine 是否已启动（防重复）
+	speedEwma     int64 // EWMA 平滑后的速率 bytes/sec
+	lastSample    int64 // 上次采样的 total，用于算 1 秒增量
+	sampleStarted bool  // sampler goroutine 是否已启动（防重复）
 	stopSampler   chan struct{}
 }
 
 func newProgressAdapter(srv *Server, task *Task, opts dl.Options) *progressAdapter {
 	return &progressAdapter{
-		srv:        srv,
-		task:       task,
-		opts:       opts,
-		lastPush:   make(map[string]time.Time),
+		srv:         srv,
+		task:        task,
+		opts:        opts,
+		lastPush:    make(map[string]time.Time),
 		stopSampler: make(chan struct{}),
 	}
 }
@@ -242,7 +248,10 @@ func (p *progressAdapter) OnDone(elem downloader.Elem, derr error) {
 	if fe != nil {
 		if ferr != nil {
 			if errors.Is(ferr, context.Canceled) {
-				fe.Status = FilePaused // 已开始下载后被暂停，可续传（区别于预填排队中的 FilePending）
+				fe.Status = FilePaused // 任务级取消：已开始下载后被中断，可续传（区别于预填排队中的 FilePending）
+			} else if errors.Is(ferr, errFilePaused) {
+				fe.Status = FilePaused // 文件级手动暂停：区别于任务级取消
+				fe.UserPaused = true
 			} else {
 				fe.Status = FileFailed
 				fe.Error = ferr.Error()
@@ -255,7 +264,7 @@ func (p *progressAdapter) OnDone(elem downloader.Elem, derr error) {
 	}
 	p.task.mu.Unlock()
 
-	if ferr != nil && !errors.Is(ferr, context.Canceled) {
+	if ferr != nil && !errors.Is(ferr, context.Canceled) && !errors.Is(ferr, errFilePaused) {
 		p.srv.log().Warn("file finalize failed",
 			zap.String("task", p.task.ID), zap.String("file", key), zap.Error(ferr))
 	}
@@ -385,7 +394,8 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 		Progress: adapter,
 		IterHook: adapter.hook,
 		// 文件级暂停：writeAt 每次写入前检查该文件是否被用户手动暂停（UserPaused）。
-		// 命中返回 context.Canceled → downloader 中止该文件，OnDone 判定为 FilePaused。
+		// 命中返回 errFilePaused 哨兵（非 context.Canceled）→ downloader 只中止该文件、
+		// 不取消整任务；OnDone 判定为 FilePaused + UserPaused。
 		PauseCheck: func(elem downloader.Elem) error {
 			// downloader.Elem 无 Key()，需断言为 dl.Elem（progressAdapter.OnAdd 同款用法）
 			e, ok := elem.(dl.Elem)
@@ -396,7 +406,7 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 			task.mu.Lock()
 			defer task.mu.Unlock()
 			if fe := adapter.findFileLocked(key); fe != nil && fe.UserPaused {
-				return context.Canceled
+				return errFilePaused
 			}
 			return nil
 		},

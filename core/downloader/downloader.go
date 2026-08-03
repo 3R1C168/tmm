@@ -47,25 +47,30 @@ func (d *Downloader) Download(ctx context.Context, limit int) error {
 	for d.opts.Iter.Next(wgctx) {
 		elem := d.opts.Iter.Value()
 
-		wg.Go(func() (rerr error) {
+		wg.Go(func() error {
 			d.opts.Progress.OnAdd(elem)
-			defer func() { d.opts.Progress.OnDone(elem, rerr) }()
-
 			if err := d.download(wgctx, elem); err != nil {
-				// canceled by user, so we directly return error to stop all
+				// canceled by user (task-level), so we directly return error to
+				// stop all: errgroup cancels wgctx and Download returns the error.
 				if errors.Is(err, context.Canceled) {
-					return errors.Wrap(err, "download")
+					rerr := errors.Wrap(err, "download")
+					d.opts.Progress.OnDone(elem, rerr)
+					return rerr
 				}
-
-				// don't return error, just log it
+				// 单文件失败（含 PauseCheck 的用户暂停哨兵）：把错误显式传给 OnDone 判定
+				// （上层据此标 FileFailed / FilePaused），但不返回错误 → 不取消 wgctx，
+				// 其他文件继续下载。这正是 spec §2.1「文件级暂停不打断任务」的要求。
+				d.opts.Progress.OnDone(elem, err)
 				logctx.
 					From(ctx).
 					Error("Download error",
 						zap.Any("element", elem),
 						zap.Error(err),
 					)
+				return nil
 			}
 
+			d.opts.Progress.OnDone(elem, nil)
 			return nil
 		})
 	}

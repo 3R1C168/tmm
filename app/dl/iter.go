@@ -98,6 +98,12 @@ type iter struct {
 	// requeue is the resume queue: Next re-produces these keys first, so a
 	// running task resumes a file immediately after Unpause.
 	requeue []MsgKey
+	// produced tracks keys already emitted via the requeue path (produceFromKey).
+	// When the main loop later reaches such a message it must NOT produce it
+	// again — otherwise two goroutines would download the same .tmp/.tdlstate
+	// concurrently. Unpause removes the key (so a later pause+unpause may
+	// re-produce); ClearPaused empties it.
+	produced map[MsgKey]struct{}
 	// processedGroups records grouped IDs whose whole album was already
 	// expanded, so when the iterator later reaches another message of the same
 	// album it is skipped instead of re-fetching the group.
@@ -158,6 +164,7 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dial
 		finished:        make(map[MsgKey]struct{}),
 		paused:          make(map[MsgKey]struct{}),
 		requeue:         make([]MsgKey, 0),
+		produced:        make(map[MsgKey]struct{}),
 		processedGroups: make(map[groupKey]struct{}),
 		fingerprint:     fingerprint(dialogs),
 		// This param is kept for potential future use but is currently unused.
@@ -283,6 +290,14 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 	// check if finished (order-independent: survives --desc/grouping changes)
 	if i.isFinished(keyFromMsg(peer, message)) {
 		i.logicalPos++ // increment logical position even if skipped
+		return false, true
+	}
+
+	// 防止双下载：requeue 路径已产出该消息（用户 early unpause 抢先下载，
+	// 下载还在进行中），主循环到达时跳过，避免两个 goroutine 并发写同一
+	// .tmp/.tdlstate。
+	if _, ok := i.produced[keyFromMsg(peer, message)]; ok {
+		i.logicalPos++
 		return false, true
 	}
 
@@ -589,6 +604,8 @@ func (i *iter) Unpause(key MsgKey) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	delete(i.paused, key)
+	// 允许该 key 后续被 requeue 路径再次产出（下一次暂停再恢复时重新入队下载）
+	delete(i.produced, key)
 	// 去重：已在 requeue 里则不重复加
 	for _, k := range i.requeue {
 		if k == key {
@@ -604,6 +621,7 @@ func (i *iter) ClearPaused() {
 	defer i.mu.Unlock()
 	i.paused = make(map[MsgKey]struct{})
 	i.requeue = i.requeue[:0]
+	i.produced = make(map[MsgKey]struct{})
 }
 
 // isPausedLocked reports whether a key is paused. Caller must hold i.mu.
@@ -648,14 +666,30 @@ func (i *iter) produceFromKey(ctx context.Context, key MsgKey) error {
 	}
 	message, err := i.prefetcher.get(ctx, peer, key.MsgID)
 	if err != nil {
+		// 消息已删：静默跳过（与主循环 process 的 ErrMessageDeleted 处理一致，
+		// 不把 requeue 解析失败当成整任务致命错误）
+		if errors.Is(err, tutil.ErrMessageDeleted) {
+			return nil
+		}
 		return errors.Wrap(err, "requeue: resolve message")
 	}
 
+	i.mu.Lock()
+	// 已完成的文件（主循环在到达时已 Finish）：requeue 恢复它只会重复下载，
+	// 静默跳过。isFinished 不加锁（调用方持锁），与 process 路径一致。
+	if i.isFinished(key) {
+		i.mu.Unlock()
+		return nil
+	}
 	// 复用 processSingle 产出 elem（含 template 渲染、SkipSame、resume state、i.elem <-）。
 	// 此处必须持锁：processSingle 不加锁（它假设调用方持锁），而 Next 已在调用前释放锁，
 	// 不加锁会与 process 持锁路径数据竞争（i.elem/i.err/i.tpl 等）。
-	i.mu.Lock()
 	ret, skip := i.processSingle(ctx, message, from, i.logicalPos)
+	if ret {
+		// 记录「已产出」：主循环稍后到达该消息时跳过，防止 requeue 早产 +
+		// 主循环重复产出导致两个 goroutine 并发写同一 .tmp/.tdlstate。
+		i.produced[key] = struct{}{}
+	}
 	i.mu.Unlock()
 
 	if skip {
