@@ -336,7 +336,20 @@ func (ss *streamSession) downloadSync(ctx context.Context, chunks []piece, onRea
 	defer cancel()
 
 	queue := make(chan piece)
-	errCh := make(chan error, 1)
+	// 收集各 worker 的失败（含 RPC 超时重试耗尽）。与旧行为（首个 err 即
+	// cancel 整批）的关键区别：单个 chunk 失败只记入 errList，不 cancel 其余
+	// worker —— seek 到未缓冲区域时，一个 chunk 拉取卡住不应让整批已下载
+	// 的 chunk 作废，否则浏览器拿不到任何数据、进度条卡死（压测 9.3% seek
+	// 失败的根因）。
+	var (
+		mu      sync.Mutex
+		errList []error
+	)
+	reportErr := func(err error) {
+		mu.Lock()
+		errList = append(errList, err)
+		mu.Unlock()
+	}
 
 	nw := workers
 	if len(chunks) < nw {
@@ -348,13 +361,11 @@ func (ss *streamSession) downloadSync(ctx context.Context, chunks []piece, onRea
 		go func() {
 			defer wg.Done()
 			for p := range queue {
+				// fetchOne 内部对单 chunk 已有 per-attempt 超时 + 重试；
+				// 重试耗尽返回 err 时，只跳过该 chunk，继续处理剩余。
 				if err := ss.fetchOne(ctx, p); err != nil {
-					select {
-					case errCh <- err:
-						cancel()
-					default:
-					}
-					return
+					reportErr(err)
+					continue
 				}
 				if onReady != nil {
 					onReady(p)
@@ -363,17 +374,27 @@ func (ss *streamSession) downloadSync(ctx context.Context, chunks []piece, onRea
 		}()
 	}
 	for _, p := range chunks {
+		// 发送前检查 ctx：外部取消（客户端断开/会话关闭）时停止派发。
+		select {
+		case <-ctx.Done():
+			close(queue)
+			wg.Wait()
+			return ctx.Err()
+		default:
+		}
 		queue <- p
 	}
 	close(queue)
 	wg.Wait()
 
-	select {
-	case err := <-errCh:
-		return err
-	default:
-		return nil
+	// 有失败：汇总返回。调用方（downloadAndServe）据此决定——若已写出字节
+	// 则照常返回（浏览器继续请求下一块），完全没写出才返回错误。
+	mu.Lock()
+	defer mu.Unlock()
+	if len(errList) > 0 {
+		return errors.Errorf("%d chunk(s) failed: %v", len(errList), errList[0])
 	}
+	return nil
 }
 
 // fetchOne downloads one aligned chunk via UploadGetFile and writes it to
