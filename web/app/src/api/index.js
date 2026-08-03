@@ -53,6 +53,10 @@ export const api = {
   chatAround: (chatId, msgId, limit = 50) =>
     req('GET', `/api/chats/${chatId}/around?msg=${msgId}&limit=${limit}`),
 
+  // 评论区（只读）：拉取频道帖子的讨论组回复，新→旧
+  listReplies: (chatId, msgId, { offsetId = 0, limit = 50 } = {}) =>
+    req('GET', `/api/chats/${chatId}/messages/${msgId}/replies?offset_id=${offsetId}&limit=${limit}`),
+
   // media
   mediaInfo: (chatId, msgId) => req('GET', `/api/media/${chatId}/${msgId}/info`),
   mediaThumbUrl: (chatId, msgId) => `${BASE}/api/media/${chatId}/${msgId}/thumb`,
