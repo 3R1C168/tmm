@@ -475,7 +475,7 @@ func (m *taskManager) fileBatch(taskID string, action string, keys []string) ([]
 }
 ```
 
-- [ ] **Step 5: 加 iter 字段（仅声明，方法在 Task 4+5 6c 实现）**
+- [ ] **Step 5: 声明 iter 字段（仅字段，方法在 Task 4+5 6c 实现）**
 
 `server/task.go` 的 taskManager 加字段 `iter dl.Iter`（在 `running` 字段旁）：
 
@@ -495,38 +495,7 @@ type taskManager struct {
 }
 ```
 
-**顺序依赖**：`fileBatch`（Step 4）调用的 `m.iterForTask(taskID)`、`iter.PauseKeys`、`iter.Unpause` 需 Task 4+5 的 6c（setIter/clearIter/iterForTask）和 iter 方法（PauseKeys/Unpause）先落盘。执行顺序调整：**Task 4+5 的 6c 与 iter 方法实现必须在 Task 3 的 fileBatch 编译之前**。实施时若按顺序执行，可先做 Task 4+5 的 iter 部分 + server 接线，再回来补 Task 3 fileBatch，或整体调序（见 Task 4+5 Step 6 的「顺序调整声明」）。
-
-`keysToMsgKeys` / `parseMsgKey` 是 server 侧小工具：
-
-```go
-// keysToMsgKeys 把 "peerID/msgID" 字符串转成 dl.MsgKey 切片；解析失败的跳过。
-func keysToMsgKeys(keys []string) []dl.MsgKey {
-	out := make([]dl.MsgKey, 0, len(keys))
-	for _, k := range keys {
-		if mk, ok := parseMsgKey(k); ok {
-			out = append(out, mk)
-		}
-	}
-	return out
-}
-
-// parseMsgKey 解析 "peerID/msgID"。非法返回 ok=false。
-func parseMsgKey(k string) (dl.MsgKey, bool) {
-	parts := strings.SplitN(k, "/", 2)
-	if len(parts) != 2 {
-		return dl.MsgKey{}, false
-	}
-	peer, err1 := strconv.ParseInt(parts[0], 10, 64)
-	msg, err2 := strconv.Atoi(parts[1])
-	if err1 != nil || err2 != nil {
-		return dl.MsgKey{}, false
-	}
-	return dl.MsgKey{PeerID: peer, MsgID: msg}, true
-}
-```
-
-注意：`dl.MsgKey` 字段是 `PeerID int64` / `MsgID int`（`app/dl/iter.go:51-53`）。
+**顺序依赖（重要）**：`fileBatch`（Step 4）调用的 `m.iterForTask(taskID)`、`iter.PauseKeys`、`iter.Unpause`、`keysToMsgKeys`、`parseMsgKey` 均在 **Task 4+5** 定义。因此**执行顺序为 Task 4+5 先于 Task 3**（见计划头部的顺序调整声明与 SDD ledger）。`parseMsgKey`/`keysToMsgKeys` 不在本任务定义（属 Task 4+5）。
 
 - [ ] **Step 6: run() 成功分支修正**
 
@@ -645,8 +614,10 @@ git commit -m "feat(server): 文件级 pause/resume API——UserPaused 区分�
 - Modify: `app/dl/iter.go`（paused 集合 + requeue 队列 + PauseKeys/Unpause/ClearPaused + Next 优先 requeue + processSingle 跳过）
 - Modify: `app/dl/finalize.go`（Iter 接口加 PauseKeys/Unpause/ClearPaused）
 - Modify: `server/dl.go`（hook 里 setIter + 收集 UserPaused → PauseKeys）
-- Modify: `server/task.go`（setIter/clearIter/iterForTask）
+- Modify: `server/task.go`（setIter/clearIter/iterForTask + parseMsgKey/keysToMsgKeys 工具）
 - Create: `app/dl/iter_pause_test.go`
+
+**顺序说明**：本任务先于 Task 3 执行（Task 3 的 fileBatch 依赖本任务的 iterForTask/parseMsgKey 等）。parseMsgKey/keysToMsgKeys 在本任务定义于 `server/task.go`。
 
 **Interfaces:**
 - Consumes: `dl.MsgKey`（iter.go:51-53）、`prefetcher.get(ctx, peer, id)`（prefetch.go:101）、`processSingle`（iter.go:301）、`i.elem` channel（iter.go:157）、`dialogIndex/messageIndex`（iter.go:99-100）
@@ -1091,11 +1062,42 @@ func (m *taskManager) iterForTask(taskID string) dl.Iter {
 
 `run()` 的 defer 里加 `m.clearIter(id)`（在现有 defer `delete(m.cancels, id)` 旁）。
 
-**6d. fileBatch 里用 iterForTask 替代 Step 5 的占位**
+**6d. parseMsgKey / keysToMsgKeys 工具**（`server/task.go`，供 hook 与 fileBatch 使用）：
 
-Task 3 Step 4 的 `fileBatch` 里 `iter := m.iterForTask(taskID)` 已引用该方法（Task 3 编译时该字段/方法不存在——**顺序依赖**：Task 3 的 `fileBatch` 里调 `iterForTask` 需 Task 4+5 的 6c 已实现）。
+```go
+// keysToMsgKeys 把 "peerID/msgID" 字符串转成 dl.MsgKey 切片；解析失败的跳过。
+func keysToMsgKeys(keys []string) []dl.MsgKey {
+	out := make([]dl.MsgKey, 0, len(keys))
+	for _, k := range keys {
+		if mk, ok := parseMsgKey(k); ok {
+			out = append(out, mk)
+		}
+	}
+	return out
+}
 
-**任务顺序调整声明**：`iterForTask`/`setIter`/`clearIter` 虽在 Task 4+5 定义，但 Task 3 的 `fileBatch` 用到。若按计划顺序执行（Task 3 先于 Task 4+5），Task 3 编译会挂。**解决**：执行时把 Task 3 的 Step 4（fileBatch 实现）与 Task 4+5 的 6c 合并执行，或 Task 4+5 整体先于 Task 3 的 fileBatch 步骤。计划按「Task 1→2→3（不含 fileBatch 的 iter 调用）→4+5（iter+server 接线）→3 补 fileBatch 真实现」的顺序亦可；最简单是**执行时保证 Task 4+5 的 6c 在 Task 3 fileBatch 之前落盘**。实施者按依赖顺序调整，不要求严格任务顺序。
+// parseMsgKey 解析 "peerID/msgID"。非法返回 ok=false。
+func parseMsgKey(k string) (dl.MsgKey, bool) {
+	parts := strings.SplitN(k, "/", 2)
+	if len(parts) != 2 {
+		return dl.MsgKey{}, false
+	}
+	peer, err1 := strconv.ParseInt(parts[0], 10, 64)
+	msg, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return dl.MsgKey{}, false
+	}
+	return dl.MsgKey{PeerID: peer, MsgID: msg}, true
+}
+```
+
+注意：`dl.MsgKey` 字段是 `PeerID int64` / `MsgID int`（`app/dl/iter.go:51-53`）。`server/task.go` 需 import `strconv`（若无）。
+
+**6e. fileBatch 引用**
+
+Task 3 的 `fileBatch`（Step 4）调用 `m.iterForTask(taskID)`、`iter.PauseKeys(keysToMsgKeys(...))`、`iter.Unpause(parseMsgKey(k))`——均在本任务定义，**Task 3 必须在本任务之后执行**。
+
+**任务顺序调整声明**：执行顺序为 Task 1 → Task 2 → **Task 4+5** → **Task 3** → Task 6 → Task 7。Task 3 的 fileBatch 与 run() 修正、测试（file_batch_test.go）都在 Task 4+5 落盘后实施。
 
 - [ ] **Step 7: 全量编译 + 回归**
 
