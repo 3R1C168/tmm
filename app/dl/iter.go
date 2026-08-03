@@ -86,8 +86,18 @@ type iter struct {
 
 	prefetcher *prefetcher
 
+	// peers maps peerID -> InputPeer for the requeue index (independent of the
+	// main dialogIndex/messageIndex state machine).
+	peers map[int64]tg.InputPeerClass
+
 	mu       *sync.Mutex
 	finished map[MsgKey]struct{} // order-independent set of downloaded messages
+	// paused holds keys the user manually paused; processSingle skips them.
+	// It is only read while holding i.mu (see isPausedLocked).
+	paused map[MsgKey]struct{}
+	// requeue is the resume queue: Next re-produces these keys first, so a
+	// running task resumes a file immediately after Unpause.
+	requeue []MsgKey
 	// processedGroups records grouped IDs whose whole album was already
 	// expanded, so when the iterator later reaches another message of the same
 	// album it is skipped instead of re-fetching the group.
@@ -142,8 +152,12 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dial
 
 		prefetcher: newPrefetcher(pool, dialogs),
 
+		peers: buildPeerIndex(dialogs),
+
 		mu:              &sync.Mutex{},
 		finished:        make(map[MsgKey]struct{}),
+		paused:          make(map[MsgKey]struct{}),
+		requeue:         make([]MsgKey, 0),
 		processedGroups: make(map[groupKey]struct{}),
 		fingerprint:     fingerprint(dialogs),
 		// This param is kept for potential future use but is currently unused.
@@ -183,6 +197,22 @@ func (i *iter) Next(ctx context.Context) bool {
 
 	if len(i.elem) > 0 { // there are messages(grouped) in channel that not processed
 		return true
+	}
+
+	// 恢复队列优先：用户恢复了暂停的文件，立即重新产出。
+	// nextRequeue 拿锁弹队列后释放锁，produceFromKey 内部再自己拿锁调
+	// processSingle —— Next 本身不重入 i.mu，避免死锁。
+	if key, ok := i.nextRequeue(); ok {
+		if err := i.produceFromKey(ctx, key); err != nil {
+			i.err = err
+			return false
+		}
+		// produceFromKey 可能因文件被再次跳过（重新暂停/无媒体/filter 命中/
+		// SkipSame）而未产出 elem：此时不能 return true（Value() 会阻塞在空
+		// channel 上死锁），落到主循环继续即可。requeue 条目已被弹出。
+		if len(i.elem) > 0 {
+			return true
+		}
 	}
 
 	for {
@@ -299,6 +329,16 @@ func channelSubdir(id int64, name string) string {
 }
 
 func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peers.Peer, logicalPos int) (bool, bool) {
+	// 文件级暂停：用户在 UI 里暂停了该文件，跳过不下载（恢复后 requeue 重新产出）。
+	// isPausedLocked：processSingle 总在持锁路径被调用（process 或 produceFromKey 持锁），
+	// 直接读 i.paused，不加锁（避免 process 持锁下重入死锁）。
+	if i.isPausedLocked(keyFromMsg(from.InputPeer(), message)) {
+		logctx.From(ctx).Info("message skipped: user paused",
+			zap.Int64("dialog_id", from.ID()),
+			zap.Int("message_id", message.ID))
+		return false, true
+	}
+
 	item, ok := tmedia.GetMedia(message)
 	if !ok {
 		logctx.From(ctx).Warn("Message has no media",
@@ -522,6 +562,126 @@ func (i *iter) SetFinished(finished map[MsgKey]struct{}) {
 	defer i.mu.Unlock()
 
 	i.finished = finished
+}
+
+// PauseKeys marks messages as user-paused so they are skipped.
+func (i *iter) PauseKeys(keys []MsgKey) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for _, k := range keys {
+		i.paused[k] = struct{}{}
+	}
+}
+
+// IsPaused reports whether a key is paused.
+func (i *iter) IsPaused(k MsgKey) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	_, ok := i.paused[k]
+	return ok
+}
+
+// Unpause removes a key from paused and re-queues it for immediate download.
+//
+// 无需唤醒下载循环：Next 是同步返回的（requeue 分支在 Next 内同步 produceFromKey
+// 并写入 i.elem），驱动循环 for it.Next(wgctx){ it.Value() } 取到 elem 即续传。
+func (i *iter) Unpause(key MsgKey) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	delete(i.paused, key)
+	// 去重：已在 requeue 里则不重复加
+	for _, k := range i.requeue {
+		if k == key {
+			return
+		}
+	}
+	i.requeue = append(i.requeue, key)
+}
+
+// ClearPaused empties the paused set and requeue (task restart).
+func (i *iter) ClearPaused() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.paused = make(map[MsgKey]struct{})
+	i.requeue = i.requeue[:0]
+}
+
+// isPausedLocked reports whether a key is paused. Caller must hold i.mu.
+func (i *iter) isPausedLocked(k MsgKey) bool {
+	_, ok := i.paused[k]
+	return ok
+}
+
+// nextRequeue pops the head of the requeue queue.
+func (i *iter) nextRequeue() (MsgKey, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if len(i.requeue) == 0 {
+		return MsgKey{}, false
+	}
+	key := i.requeue[0]
+	i.requeue = i.requeue[1:]
+	return key, true
+}
+
+// peerByID returns the InputPeerClass for a peer id, and whether it exists.
+func (i *iter) peerByID(id int64) (tg.InputPeerClass, bool) {
+	p, ok := i.peers[id]
+	return p, ok
+}
+
+// produceFromKey fetches the message for a requeued key and produces its elem
+// through the same path as the main loop. It does NOT touch dialogIndex /
+// messageIndex / logicalPos (main state machine is fully isolated).
+//
+// 锁语义：本方法自身持锁调 processSingle（processSingle 假设调用方持锁，
+// 直接读 i.paused/finished 等，不加锁）；Next 在调用本方法前已释放锁。
+func (i *iter) produceFromKey(ctx context.Context, key MsgKey) error {
+	peer, ok := i.peerByID(key.PeerID)
+	if !ok {
+		return errors.Errorf("requeue key %s: peer not in download set", key.String())
+	}
+	// 从独立索引取 (peer, msgID)
+	from, err := i.manager.FromInputPeer(ctx, peer)
+	if err != nil {
+		return errors.Wrap(err, "requeue: resolve from input peer")
+	}
+	message, err := i.prefetcher.get(ctx, peer, key.MsgID)
+	if err != nil {
+		return errors.Wrap(err, "requeue: resolve message")
+	}
+
+	// 复用 processSingle 产出 elem（含 template 渲染、SkipSame、resume state、i.elem <-）。
+	// 此处必须持锁：processSingle 不加锁（它假设调用方持锁），而 Next 已在调用前释放锁，
+	// 不加锁会与 process 持锁路径数据竞争（i.elem/i.err/i.tpl 等）。
+	i.mu.Lock()
+	ret, skip := i.processSingle(ctx, message, from, i.logicalPos)
+	i.mu.Unlock()
+
+	if skip {
+		// 文件被再次跳过（重新暂停 / 无媒体 / include-exclude / SkipSame）：静默忽略。
+		// Next 通过 len(i.elem)>0 判断未产出，落到主循环继续，不会空转死锁。
+		return nil
+	}
+	if !ret {
+		// 致命错误（i.err 已设置）。i.err 在锁外读取有极小竞态窗口，
+		// 但只影响错误路径的保守返回，可接受。
+		if i.err != nil {
+			return i.err
+		}
+		return errors.New("requeue: processSingle produced no element")
+	}
+	return nil
+}
+
+// buildPeerIndex builds a peerID -> InputPeer map for the requeue index. It is
+// independent of the main dialogIndex/messageIndex state machine.
+func buildPeerIndex(dialogs []*tmessage.Dialog) map[int64]tg.InputPeerClass {
+	m := make(map[int64]tg.InputPeerClass, len(dialogs))
+	for _, d := range dialogs {
+		m[tutil.GetInputPeerID(d.Peer)] = d.Peer
+	}
+	return m
 }
 
 func (i *iter) Finished() map[MsgKey]struct{} {

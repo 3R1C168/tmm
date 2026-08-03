@@ -64,7 +64,23 @@ func (p *progressAdapter) hook(it dl.Iter) {
 
 	p.task.mu.Lock()
 	p.task.Fingerprint = it.Fingerprint()
+	// 任务 resume 重跑时，用户手动暂停的文件（UserPaused）保持跳过，不自动续传
+	var pausedKeys []dl.MsgKey
+	for _, f := range p.task.Files {
+		if f != nil && f.UserPaused {
+			if mk, ok := parseMsgKey(f.Key); ok {
+				pausedKeys = append(pausedKeys, mk)
+			}
+		}
+	}
 	p.task.mu.Unlock()
+
+	if len(pausedKeys) > 0 {
+		it.PauseKeys(pausedKeys)
+	}
+
+	// 暴露 iter 给 taskManager（文件级暂停/恢复即时生效）
+	p.srv.tasks.setIter(p.task.ID, it)
 }
 
 func (p *progressAdapter) OnAdd(elem downloader.Elem) {
@@ -368,6 +384,22 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 
 		Progress: adapter,
 		IterHook: adapter.hook,
+		// 文件级暂停：writeAt 每次写入前检查该文件是否被用户手动暂停（UserPaused）。
+		// 命中返回 context.Canceled → downloader 中止该文件，OnDone 判定为 FilePaused。
+		PauseCheck: func(elem downloader.Elem) error {
+			// downloader.Elem 无 Key()，需断言为 dl.Elem（progressAdapter.OnAdd 同款用法）
+			e, ok := elem.(dl.Elem)
+			if !ok {
+				return nil
+			}
+			key := e.Key().String()
+			task.mu.Lock()
+			defer task.mu.Unlock()
+			if fe := adapter.findFileLocked(key); fe != nil && fe.UserPaused {
+				return context.Canceled
+			}
+			return nil
+		},
 	}
 	return opts, nil
 }

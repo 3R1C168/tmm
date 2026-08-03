@@ -30,6 +30,15 @@ type Iter interface {
 	SkippedDeleted() int64
 	// DeletedIDs lists "dialogID/messageID" strings for deleted messages.
 	DeletedIDs() []string
+	// PauseKeys marks messages as user-paused so processSingle skips them
+	// (no element is produced, no finish recorded). Keys not part of the
+	// download set are ignored.
+	PauseKeys(keys []MsgKey)
+	// Unpause removes a key from the paused set and re-queues it for download,
+	// so a running task resumes that file immediately.
+	Unpause(key MsgKey)
+	// ClearPaused empties the paused set (called when a task (re)starts).
+	ClearPaused()
 }
 
 // Elem is the exported view of a single download element. downloader.Elem

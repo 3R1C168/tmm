@@ -37,6 +37,7 @@ type taskManager struct {
 	queue   []string // pending task ids, FIFO
 	cancels map[string]context.CancelFunc
 	running string // currently-running task id, "" if idle
+	iter    dl.Iter // 当前运行任务的迭代器（文件级暂停/恢复用），非 running 时为 nil
 
 	wake chan struct{}
 	stop chan struct{}
@@ -50,6 +51,59 @@ func newTaskManager(srv *Server) *taskManager {
 		wake:    make(chan struct{}, 1),
 		stop:    make(chan struct{}),
 	}
+}
+
+// setIter 记录当前运行任务的 iter（文件级操作即时生效用）。
+func (m *taskManager) setIter(taskID string, it dl.Iter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.running == taskID {
+		m.iter = it
+	}
+}
+
+// clearIter 清空 iter（任务结束时）。
+func (m *taskManager) clearIter(taskID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.running == taskID {
+		m.iter = nil
+	}
+}
+
+// iterForTask 返回当前运行任务的 iter；任务非 running 或 iter 未就绪返回 nil。
+func (m *taskManager) iterForTask(taskID string) dl.Iter {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.running != taskID {
+		return nil
+	}
+	return m.iter
+}
+
+// keysToMsgKeys 把 "peerID/msgID" 字符串转成 dl.MsgKey 切片；解析失败的跳过。
+func keysToMsgKeys(keys []string) []dl.MsgKey {
+	out := make([]dl.MsgKey, 0, len(keys))
+	for _, k := range keys {
+		if mk, ok := parseMsgKey(k); ok {
+			out = append(out, mk)
+		}
+	}
+	return out
+}
+
+// parseMsgKey 解析 "peerID/msgID"。非法返回 ok=false。
+func parseMsgKey(k string) (dl.MsgKey, bool) {
+	parts := strings.SplitN(k, "/", 2)
+	if len(parts) != 2 {
+		return dl.MsgKey{}, false
+	}
+	peer, err1 := strconv.ParseInt(parts[0], 10, 64)
+	msg, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return dl.MsgKey{}, false
+	}
+	return dl.MsgKey{PeerID: peer, MsgID: msg}, true
 }
 
 // submit validates and enqueues a new task.
@@ -398,6 +452,10 @@ func (m *taskManager) run(id string) {
 	m.mu.Unlock()
 	defer func() {
 		cancel()
+		// 必须先清 iter 再置 running=""：clearIter 内部校验 m.running==id，
+		// 若先清 running 则永远清不掉（iter 引用泄漏）。drain() 同步调 run()，
+		// 整个 run 期间 running==id，无并发任务，这里先清是安全的。
+		m.clearIter(id)
 		m.mu.Lock()
 		delete(m.cancels, id)
 		m.running = ""

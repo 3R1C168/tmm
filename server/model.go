@@ -40,6 +40,7 @@ type FileEntry struct {
 	Size       int64      `json:"size"`
 	Downloaded int64      `json:"downloaded"`
 	Status     FileStatus `json:"status"`
+	UserPaused bool       `json:"userPaused"` // 文件级手动暂停标记；任务级暂停不置此位
 	Error      string     `json:"error,omitempty"`
 }
 
