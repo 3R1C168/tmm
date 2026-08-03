@@ -760,12 +760,16 @@ async function reloadMessages(refresh = false, positionAtUnread = false) {
 // loadMessagesWithRetry 加载消息，遇到 503（连接重连中）时自动轮询重试。
 // 最多重试 8 次，间隔 3s（总上限 ~24s），期间显示"连接重连中"提示。
 // 成功或非 503 错误则正常返回。切频道时 abortPending 清除定时器终止循环。
-// positionAtUnread：首次进入时定位到未读起点（readInboxMaxId+1）。
+// positionAtUnread：首次进入（无会话记忆）时定位到未读区——从最新页起，
+// 若未读区超过最新页则先翻页到未读分界（readInboxMaxId）进入已加载区，再定位。
 async function loadMessagesWithRetry(chatId, refresh, positionAtUnread = false) {
   const MAX_RETRY = 8
   const RETRY_INTERVAL = 3000
-  // 首次加载定位：有未读时从第一条未读（readInboxMaxId+1）开始，仿桌面端
-  const firstUnreadOffset = positionAtUnread && current.value?.readInboxMaxId > 0 ? current.value.readInboxMaxId + 1 : 0
+  // 首次加载定位（仅 positionAtUnread 生效）：offset_id=0 最新页起；未读分界 =
+  // readInboxMaxId，未读区在上（id 更大）。getHistory 的 offset_id 是排他游标
+  // （返回 id < offset 的），不能用 readInboxMaxId+1 当 offset——那会只拿到已读
+  // 历史、漏掉未读区。改为最新页 + 翻页直到分界进入已加载区（见下方 while）。
+  const unreadBoundary = positionAtUnread && current.value?.readInboxMaxId > 0 ? current.value.readInboxMaxId : 0
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     if (current.value?.id !== chatId) return // 已切走
     abortPending()
@@ -779,20 +783,35 @@ async function loadMessagesWithRetry(chatId, refresh, positionAtUnread = false) 
       nextTick(() => { const el = scrollEl(); if (el) el.scrollTop = 0 })
     }
     try {
-      const r = await api.listMessages(chatId, { offsetId: firstUnreadOffset, limit: 50, mediaOnly: mediaOnly.value, refresh, signal })
+      const r = await api.listMessages(chatId, { limit: 50, mediaOnly: mediaOnly.value, refresh, signal }) // offset_id=0 最新页
       if (current.value?.id !== chatId) return // 已切走
       reconnecting.value = false
       msgsLoading.value = false
       messages.value = r.messages || []
       nextCursor.value = r.nextCursor || 0
       hasMore.value = (r.messages || []).length > 0 && r.nextCursor > 0
-      // 数据到达后强制 scroller 定位到第一条（最新消息）：DynamicScroller 在
-      // items 从空增长时内部偏移可能错乱（最新消息被推到视口外 -9864px），
-      // scrollTop=0 不够（偏移是内部 itemSize 累积），用 scrollToItem(0) 让
-      // 虚拟滚动按实测高度重排到顶部。
+      // 首次进入且频道有未读：未读区可能比最新页更长（>50 条未读时最新页全在
+      // 未读区），继续往旧翻页，直到未读分界（id <= readInboxMaxId）进入已加载
+      // 区，分隔线才有落点。失败走外层 catch（503 自动重试）。
+      if (positionAtUnread && unreadBoundary > 0) {
+        while (nextCursor.value > 0 && !messages.value.some((m) => m.id <= unreadBoundary)) {
+          const p = await api.listMessages(chatId, { offsetId: nextCursor.value, limit: 200, mediaOnly: mediaOnly.value, signal })
+          if (current.value?.id !== chatId) return // 已切走
+          const older = p.messages || []
+          if (!older.length) break
+          messages.value = [...messages.value, ...older]
+          nextCursor.value = p.nextCursor || 0
+          hasMore.value = nextCursor.value > 0
+        }
+      }
+      // 数据到达后定位：默认回顶部（最新）；首次进入有未读时定位到第一条未读。
+      // DynamicScroller 在 items 从空增长时内部偏移可能错乱（最新消息被推到视口
+      // 外 -9864px），scrollTop=0 不够（偏移是内部 itemSize 累积），用 scrollToItem
+      // 让虚拟滚动按实测高度重排到目标位置。
       nextTick(() => {
         try {
-          if (scrollerRef.value?.scrollToItem) scrollerRef.value.scrollToItem(0)
+          if (positionAtUnread && unreadBoundary > 0) scrollToUnread(unreadBoundary)
+          else if (scrollerRef.value?.scrollToItem) scrollerRef.value.scrollToItem(0)
         } catch { /* 首屏偶发，非致命 */ }
       })
       warmupThumbs()
@@ -1028,6 +1047,25 @@ function scrollToMsg(msgId) {
   if (idx >= 0 && scrollerRef.value) {
     scrollerRef.value.scrollToItem(idx)
   }
+}
+// 定位到第一条未读（readInboxMaxId+1），让它进入视口。该条不在已加载区
+// （如 ID 断档等）时，退回定位到已加载的未读区底部（最旧的未读）。
+function scrollToUnread(boundary) {
+  const firstUnreadId = boundary + 1
+  const idx = displayItems.value.findIndex((it) =>
+    (it.type === 'msg' && it.msg?.id === firstUnreadId) ||
+    (it.type === 'album' && (it.msgs || []).some((m) => m.id === firstUnreadId))
+  )
+  if (idx >= 0 && scrollerRef.value) {
+    scrollerRef.value.scrollToItem(idx)
+    return
+  }
+  let last = -1
+  displayItems.value.forEach((it, i) => {
+    const ids = it.type === 'msg' ? [it.msg?.id] : (it.msgs || []).map((m) => m.id)
+    if (ids.some((id) => id > boundary)) last = i
+  })
+  if (last >= 0 && scrollerRef.value) scrollerRef.value.scrollToItem(last)
 }
 // 全局播放器"定位到消息"：player.locateMsgId 变化时滚动
 watch(() => player.locateMsgId, (id) => {
