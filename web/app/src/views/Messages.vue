@@ -60,6 +60,15 @@
             <button v-if="searchQuery" class="search-clear" @click="clearSearch">✕</button>
           </div>
           <el-checkbox v-model="mediaOnly" size="small" @change="reloadMessages">只看媒体</el-checkbox>
+          <!-- 手动模式「标记已读」按钮：autoRead 关闭时显示（手动标记全部已读），有未读分界才需要 -->
+          <button
+            v-if="current && current.readInboxMaxId > 0 && !settings.autoRead"
+            class="chat-read-btn"
+            @click="markReadCurrent(true)"
+            title="标记全部已读"
+          >
+            标记已读
+          </button>
           <button class="chat-refresh-btn" :disabled="msgsLoading" @click="reloadMessages(true)" title="刷新消息">
             <RefreshCw v-if="!msgsLoading" :size="14" />
             <Loader2 v-else :size="14" class="spin" />
@@ -947,9 +956,10 @@ function jumpUnread() {
     scrollToMsg(unreadFirstId.value)
   }
 }
-async function markReadCurrent() {
+async function markReadCurrent(force = false) {
   if (!current.value || !unreadLastId.value) return
-  if (!settings.value.autoRead) return // 手动模式：只跳转，不自动已读
+  // force=true（手动模式工具栏「标记已读」）跳过 autoRead 检查；否则手动模式只跳转不自动已读
+  if (!force && !settings.value.autoRead) return
   try {
     await api.markRead(String(current.value.id), unreadLastId.value)
     // 更新本地未读状态：ReadInboxMaxID 推进到最新 → 无未读
@@ -1322,6 +1332,14 @@ function fmtDate(ts) {
 .chat-refresh-btn:disabled { opacity: .6; cursor: default; }
 .chat-refresh-btn .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* 手动模式「标记已读」按钮：工具栏小按钮，仅 autoRead 关闭且有未读分界时显示 */
+.chat-read-btn {
+  flex: none; height: 32px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--text-2);
+  font-size: 12.5px; white-space: nowrap; cursor: pointer; transition: .15s;
+}
+.chat-read-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
 .chat-item:hover { border-color: var(--accent); }
