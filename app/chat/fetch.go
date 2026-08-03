@@ -82,7 +82,10 @@ func FetchDialogs(ctx context.Context, c *telegram.Client, kvd storage.Storage) 
 		if dlg, ok := d.Dialog.(*tg.Dialog); ok {
 			info.UnreadCount = dlg.UnreadCount
 			info.Pinned = dlg.Pinned
-			info.ReadInboxMaxID = dlg.ReadInboxMaxID
+			info.ReadInboxMaxID = dlg.GetReadInboxMaxID()
+			if info.UnreadCount > 0 && info.ReadInboxMaxID == 0 {
+				log.Warn("dialog unread but readInboxMaxID=0", zap.Int64("peer", r.ID), zap.Int("unread", info.UnreadCount))
+			}
 		}
 		result = append(result, info)
 	}
@@ -96,12 +99,24 @@ func FetchDialogs(ctx context.Context, c *telegram.Client, kvd storage.Storage) 
 	return result, nil
 }
 
-// FetchMarkRead 标记会话 ≤maxID 的消息已读（messages.readHistory）。
+// FetchMarkRead 标记会话 ≤maxID 的消息已读。
+// 频道（channel/supergroup）用 channels.readHistory（messages.readHistory 对频道返回
+// PEER_ID_INVALID）；用户/群用 messages.readHistory。
 func FetchMarkRead(ctx context.Context, c *telegram.Client, kvd storage.Storage, chatID string, maxID int) error {
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(c.API())
 	peer, err := tutil.GetInputPeer(ctx, manager, chatID)
 	if err != nil {
 		return errors.Wrap(err, "resolve chat")
+	}
+	if ch, ok := peer.(peers.Channel); ok {
+		// 频道：channels.readHistory（Channel InputChannelClass + MaxID）
+		if _, err := c.API().ChannelsReadHistory(ctx, &tg.ChannelsReadHistoryRequest{
+			Channel: ch.InputChannel(),
+			MaxID:   maxID,
+		}); err != nil {
+			return errors.Wrap(err, "mark read")
+		}
+		return nil
 	}
 	if _, err := c.API().MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{
 		Peer:  peer.InputPeer(),
