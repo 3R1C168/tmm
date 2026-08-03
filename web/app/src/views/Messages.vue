@@ -59,13 +59,25 @@
             />
             <button v-if="searchQuery" class="search-clear" @click="clearSearch">✕</button>
           </div>
-          <el-checkbox v-model="mediaOnly" size="small" @change="reloadMessages">只看媒体</el-checkbox>
+          <!-- 只看媒体：按钮点击高亮（mediaOnly 激活态），切换后重载消息 -->
+          <button
+            class="chat-media-btn"
+            :class="{ active: mediaOnly }"
+            @click="mediaOnly = !mediaOnly; reloadMessages()"
+            title="只看媒体"
+          >只看媒体</button>
+          <el-button size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
+          <el-button size="small" @click="rangeDialog = true">按范围下载</el-button>
+          <el-button
+            size="small"
+            :disabled="!hasUnread"
+            @click="markReadCurrent"
+            title="将该频道全部标记为已读"
+          >全部已读</el-button>
           <button class="chat-refresh-btn" :disabled="msgsLoading" @click="reloadMessages(true)" title="刷新消息">
             <RefreshCw v-if="!msgsLoading" :size="14" />
             <Loader2 v-else :size="14" class="spin" />
           </button>
-          <el-button type="primary" size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
-          <el-button size="small" @click="rangeDialog = true">按范围下载</el-button>
         </header>
 
         <!-- 频道内搜索下拉：覆盖在消息区上方，独立于消息列表状态 -->
@@ -352,7 +364,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css'
 import { api } from '../api'
@@ -906,8 +918,18 @@ async function doMarkRead(maxId) {
   } catch { /* 静默 */ }
 }
 
+// 标题栏「全部已读」：弹确认框防误触，确认后全读当前频道（≤最新消息 id）。
 async function markReadCurrent() {
   if (!current.value || !unreadLastId.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确认将「${current.value.visibleName || current.value.username || ''}」全部标记为已读？`,
+      '全部已读',
+      { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return // 用户取消
+  }
   await doMarkRead(unreadLastId.value)
 }
 function refreshChatsUnread() {
@@ -1275,14 +1297,14 @@ function fmtDate(ts) {
 .chat-refresh-btn:disabled { opacity: .6; cursor: default; }
 .chat-refresh-btn .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-/* 手动模式「标记已读」按钮：工具栏小按钮，仅 autoRead 关闭且有未读分界时显示 */
-.chat-read-btn {
-  flex: none; height: 32px; padding: 0 12px;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--bg); color: var(--text-2);
-  font-size: 12.5px; white-space: nowrap; cursor: pointer; transition: .15s;
+/* 只看媒体：按钮点击高亮激活态，与其他标题栏按钮视觉统一 */
+.chat-media-btn {
+  flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: transparent; color: var(--text-3);
+  cursor: pointer; font-size: 13px; transition: .15s;
 }
-.chat-read-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.chat-media-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.chat-media-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
 .chat-item:hover { border-color: var(--accent); }
