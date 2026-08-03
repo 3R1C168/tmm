@@ -276,6 +276,7 @@ func (s *Server) router() *mux.Router {
 	api.HandleFunc("/chats/{id}/messages", s.handleListMessages).Methods(http.MethodGet)
 	api.HandleFunc("/chats/{id}/search", s.handleChatSearch).Methods(http.MethodGet)
 	api.HandleFunc("/chats/{id}/around", s.handleChatAround).Methods(http.MethodGet)
+	api.HandleFunc("/chats/{id}/messages/{msg}/replies", s.handleChatReplies).Methods(http.MethodGet)
 
 	// media preview / streaming
 	api.HandleFunc("/media/{id}/{msg}/info", s.handleMediaInfo).Methods(http.MethodGet)

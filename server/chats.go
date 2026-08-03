@@ -159,7 +159,9 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	mediaOnly := q.Get("media_only") == "1"
 	refresh := q.Get("refresh") == "1"
 
-	cacheKey := "msgs_" + a.ns + "_" + chatID + "_" + strconv.Itoa(offsetID) + "_" + strconv.Itoa(limit)
+	// msgs_v2：MessageInfo 新增 replies/reactions 字段后，旧 msgs_ 缓存 payload
+	// 缺字段会导致升级后 2h 内列表不显示反应/评论数——加版本立即失效重拉。
+	cacheKey := "msgs_v2_" + a.ns + "_" + chatID + "_" + strconv.Itoa(offsetID) + "_" + strconv.Itoa(limit)
 	if mediaOnly {
 		cacheKey += "_m"
 	}
@@ -371,4 +373,33 @@ func (s *Server) handleChatAround(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+}
+
+// handleChatReplies pages a channel post's comment section (newest first,
+// read-only). Query: offset_id (cursor), limit. 无缓存无单飞——锚点相关的
+// 查询，高频缓存收益低、正确性风险高（消息被删/新回复），同 handleChatAround 理由。
+func (s *Server) handleChatReplies(w http.ResponseWriter, r *http.Request) {
+	a := s.activeAccount()
+	if a == nil {
+		writeErr(w, http.StatusBadRequest, errString("尚未登录账号"))
+		return
+	}
+	chatID, msgID, err := parseMediaVars(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	offsetID, _ := strconv.Atoi(r.URL.Query().Get("offset_id"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	comments, next, err := chat.FetchReplies(r.Context(), a.client, a.kvd, chatID, msgID, offsetID, limit)
+	if err != nil {
+		s.log().Warn("fetch replies failed", zap.String("chat", chatID), zap.Int("msg", msgID), zap.Error(err))
+		writeErr(w, http.StatusServiceUnavailable, errString("连接重连中，请稍候"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"comments":   comments,
+		"nextCursor": next,
+	})
 }
