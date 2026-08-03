@@ -1,6 +1,12 @@
 <template>
   <span class="reaction-badge">
-    <component :is="icon" v-if="icon" :size="11" class="reaction-ico" />
+    <img
+      v-if="imgSrc"
+      :src="imgSrc"
+      :alt="emoji"
+      class="reaction-img"
+      draggable="false"
+    />
     <span v-else class="reaction-emoji">{{ emoji }}</span>
     <span class="reaction-count">{{ count }}</span>
   </span>
@@ -8,17 +14,18 @@
 
 <script setup>
 import { computed } from 'vue'
-import { reactionIcon } from '../utils/reactionIcon'
+import { reactionTwemojiUrl } from '../utils/twemoji'
 
 const props = defineProps({
   emoji: { type: String, required: true },
   count: { type: Number, default: 0 },
 })
-const icon = computed(() => reactionIcon(props.emoji))
+// 本地打包的 twemoji SVG（跨平台统一），未打包的 fallback 系统 emoji
+const imgSrc = computed(() => reactionTwemojiUrl(props.emoji))
 </script>
 
 <style scoped>
-/* 反应徽章：命中映射用 lucide 线性图标（与 UI 灰色小字统一），未命中 fallback emoji */
+/* 反应徽章：本地 twemoji SVG（跨平台统一渲染），未打包的 fallback emoji 字符 */
 .reaction-badge {
   display: inline-flex;
   align-items: center;
@@ -27,13 +34,16 @@ const icon = computed(() => reactionIcon(props.emoji))
   color: var(--text-3);
   vertical-align: middle;
 }
-.reaction-ico,
+.reaction-img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  display: inline-flex;
+}
 .reaction-emoji {
   display: inline-flex;
   align-items: center;
-}
-.reaction-emoji {
-  font-size: 12px; /* emoji 字符略大于线性图标，视觉对齐 */
+  font-size: 12px; /* emoji 字符略大于 SVG，视觉对齐 */
   line-height: 1;
 }
 </style>

@@ -36,6 +36,10 @@ if [[ "${1:-}" == "web" ]]; then
   echo "==> 部署前端到 tmm/web"
   rm -rf ../tmm/web/assets
   cp -r web/app/dist/assets ../tmm/web/assets
+  # twemoji SVG 图集（离线打包，跨平台统一反应渲染）——vite 从 public/ 拷到
+  # dist/twemoji/，这里一并部署，否则反应图 404
+  rm -rf ../tmm/web/twemoji
+  cp -r web/app/dist/twemoji ../tmm/web/twemoji
   cp web/app/dist/index.html ../tmm/web/index.html
   echo "==> 前端部署完成"
 fi
