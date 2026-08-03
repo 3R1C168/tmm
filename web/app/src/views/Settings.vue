@@ -56,25 +56,35 @@
     </div>
 
     <div class="card">
-      <h3 class="sec">文件名</h3>
+      <h3 class="sec">下载设置</h3>
+      <div class="setrow">
+        <div class="setinfo">
+          <div class="setname">下载目录</div>
+          <div class="setdesc muted">下载文件存放的位置，留空使用默认目录（程序所在目录的 downloads）。按频道存放开启时，文件存到对应频道子目录。</div>
+        </div>
+        <div class="dl-dir-row">
+          <el-input v-model="settings.downloadDir" placeholder="留空 = 默认目录" clearable size="small" style="min-width: 220px" @change="saveSettings" />
+          <el-button size="small" @click="pickDownloadDir">选择文件夹</el-button>
+        </div>
+      </div>
       <div class="setrow">
         <div class="setinfo">
           <div class="setname">文件名添加消息ID前缀</div>
-          <div class="setdesc muted">开启后，下载的文件名前会加上 <code class="code-hint">#22713</code> 前缀（消息ID + 空格），方便按消息查找文件。如：<code class="code-hint">#22713 video.mp4</code></div>
+          <div class="setdesc muted">开启后，文件名前会加上 <code class="code-hint">#消息ID</code> 前缀，方便按消息查找。</div>
         </div>
         <el-switch v-model="settings.msgIdPrefix" @change="saveSettings" />
       </div>
       <div class="setrow">
         <div class="setinfo">
           <div class="setname">文件名添加频道ID前缀</div>
-          <div class="setdesc muted">开启后，下载的文件名前会加上 <code class="code-hint">#2070986972</code> 前缀（频道ID + 空格）。与消息ID前缀同时开启时为 <code class="code-hint">#2070986972 #22713 video.mp4</code>，方便按频道查找文件。</div>
+          <div class="setdesc muted">开启后，文件名前会加上 <code class="code-hint">#频道ID</code> 前缀，方便按频道查找。</div>
         </div>
         <el-switch v-model="settings.channelIdPrefix" @change="saveSettings" />
       </div>
       <div class="setrow">
         <div class="setinfo">
           <div class="setname">按频道存放下载文件</div>
-          <div class="setdesc muted">开启后，每个频道的文件存到下载目录下 <code class="code-hint">#频道ID 频道名</code> 子目录，频道名中的特殊字符会被自动清理。如：<code class="code-hint">downloads/#2070986972 资源社区/</code></div>
+          <div class="setdesc muted">开启后，每个频道的文件存到下载目录下的 <code class="code-hint">#频道ID 频道名</code> 子目录，频道名中的特殊字符会被自动清理。</div>
         </div>
         <el-switch v-model="settings.channelDir" @change="saveSettings" />
       </div>
@@ -92,16 +102,6 @@
 
     <div class="card">
       <h3 class="sec">服务</h3>
-      <div class="setrow">
-        <div class="setinfo">
-          <div class="setname">下载目录</div>
-          <div class="setdesc muted">下载文件存放的目录，默认在程序所在目录的 downloads 文件夹。按频道存放开关开启时，文件存到此目录下 #频道ID 频道名 子目录。</div>
-        </div>
-        <div class="dl-dir-row">
-          <el-input v-model="settings.downloadDir" placeholder="留空 = 默认目录（程序目录下 downloads）" clearable size="small" style="min-width: 220px" @change="saveSettings" />
-          <el-button size="small" @click="pickDownloadDir">选择文件夹</el-button>
-        </div>
-      </div>
       <div class="kv"><span class="k">前端目录</span><span class="v mono">{{ store.config.webRoot }}</span></div>
       <el-divider />
       <el-popconfirm title="确定停止服务吗？正在下载的任务会被暂停。" @confirm="shutdown">
@@ -156,11 +156,16 @@ async function saveSettings() {
 }
 
 async function pickDownloadDir() {
+  // 服务器端原生目录选择器：弹窗在服务器桌面弹出（能拿绝对路径）。
+  // 前端先提示，避免用户不知道已弹窗。
   try {
+    ElMessage.info('正在打开选择窗口…')
     const r = await api.pickFolder('选择下载目录')
     if (!r.cancelled && r.path) {
       settings.value.downloadDir = r.path
       await saveSettings()
+    } else if (r.cancelled) {
+      ElMessage.info('已取消选择')
     }
   } catch (e) { ElMessage.error(e.message) }
 }
