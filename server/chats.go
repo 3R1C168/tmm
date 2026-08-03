@@ -235,7 +235,9 @@ func (s *Server) warmupChatThumbs(a *account, chatID string, msgs []*chat.Messag
 }
 
 // handleChatSearch searches a chat's messages (server-side index, messages.search).
-// Query: q (search text), offset (msgid cursor), limit.
+// Query: q (search text), offset (fulltext msgid cursor), offsetTag (tag cursor),
+// limit. 无 # 并集搜索时 offset 与 offsetTag 是两个独立游标（见 SearchMessages），
+// 续拉必须各传各的；offset/offsetTag 为负表示该源已拉完。
 // Results are cached with a short TTL; concurrent identical queries share one RPC.
 func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 	a := s.activeAccount()
@@ -246,6 +248,7 @@ func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 	chatID := mux.Vars(r)["id"]
 	q := r.URL.Query().Get("q")
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	offsetTag, _ := strconv.Atoi(r.URL.Query().Get("offsetTag"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
 	if !chat.ValidSearchQuery(q) {
@@ -259,23 +262,25 @@ func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 	// cacheKey 里 q 用 sha1 前 16 位十六进制哈希替代原文：q 可含 Windows
 	// 文件系统非法字符（: * / \ 等），直接拼进 meta 文件名会导致 writeMeta
 	// 静默失败（缓存永不命中）；哈希也避免超长查询撑爆文件名。16 位十六进制
-	// （64 bit）碰撞概率可忽略。
+	// （64 bit）碰撞概率可忽略。并集双游标时 offsetTag 也纳入 key。
 	qHash := fmt.Sprintf("%x", sha1.Sum([]byte(q)))[:16]
-	cacheKey := "search_" + a.ns + "_" + chatID + "_" + qHash + "_" + strconv.Itoa(offset)
+	cacheKey := "search_" + a.ns + "_" + chatID + "_" + qHash + "_" +
+		strconv.Itoa(offset) + "_" + strconv.Itoa(offsetTag)
 
 	// 缓存命中
 	var cachedRes chat.SearchResult
 	if fresh, _ := s.cache.readMeta(cacheKey, searchCacheTTL, &cachedRes); fresh {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"results":    cachedRes.Results,
-			"nextOffset": cachedRes.NextOffset,
-			"count":      cachedRes.Count,
-			"cached":     true,
+			"results":       cachedRes.Results,
+			"nextOffset":    cachedRes.NextOffset,
+			"nextOffsetTag": cachedRes.NextOffsetTag,
+			"count":         cachedRes.Count,
+			"cached":        true,
 		})
 		return
 	}
 
-	// 单飞：同 (chat, q, offset) 并发共享一个 RPC
+	// 单飞：同 (chat, q, offset, offsetTag) 并发共享一个 RPC
 	s.searchMu.Lock()
 	if c, ok := s.searchInflight[cacheKey]; ok {
 		s.searchMu.Unlock()
@@ -286,10 +291,11 @@ func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
-				"results":    c.res.Results,
-				"nextOffset": c.res.NextOffset,
-				"count":      c.res.Count,
-				"cached":     false,
+				"results":       c.res.Results,
+				"nextOffset":    c.res.NextOffset,
+				"nextOffsetTag": c.res.NextOffsetTag,
+				"count":         c.res.Count,
+				"cached":        false,
 			})
 			return
 		case <-r.Context().Done():
@@ -313,7 +319,7 @@ func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 	var serr error
 	for attempt := 0; attempt < searchMaxAttempt; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), searchPerAttempt)
-		c.res, serr = chat.SearchMessages(ctx, a.client, a.kvd, chatID, q, offset, limit)
+		c.res, serr = chat.SearchMessages(ctx, a.client, a.kvd, chatID, q, offset, offsetTag, limit)
 		cancel()
 		if serr == nil {
 			break
@@ -335,10 +341,11 @@ func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"results":    c.res.Results,
-		"nextOffset": c.res.NextOffset,
-		"count":      c.res.Count,
-		"cached":     false,
+		"results":       c.res.Results,
+		"nextOffset":    c.res.NextOffset,
+		"nextOffsetTag": c.res.NextOffsetTag,
+		"count":         c.res.Count,
+		"cached":        false,
 	})
 }
 

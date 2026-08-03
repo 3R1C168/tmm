@@ -48,8 +48,8 @@ export const api = {
   listChats: (refresh) => req('GET', `/api/chats${refresh ? '?refresh=1' : ''}`),
   listMessages: (chatId, { offsetId = 0, limit = 30, mediaOnly = false, refresh = false, signal } = {}) =>
     req('GET', `/api/chats/${chatId}/messages?offset_id=${offsetId}&limit=${limit}&media_only=${mediaOnly ? 1 : 0}${refresh ? '&refresh=1' : ''}`, undefined, signal),
-  searchMessages: (chatId, { q, offset = 0, limit = 50 } = {}) =>
-    req('GET', `/api/chats/${chatId}/search?q=${encodeURIComponent(q)}&offset=${offset}&limit=${limit}`),
+  searchMessages: (chatId, { q, offset = 0, offsetTag = 0, limit = 50 } = {}) =>
+    req('GET', `/api/chats/${chatId}/search?q=${encodeURIComponent(q)}&offset=${offset}&offsetTag=${offsetTag}&limit=${limit}`),
   chatAround: (chatId, msgId, limit = 50) =>
     req('GET', `/api/chats/${chatId}/around?msg=${msgId}&limit=${limit}`),
 

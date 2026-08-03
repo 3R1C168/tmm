@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/go-faster/errors"
@@ -21,14 +22,18 @@ func ValidSearchQuery(q string) bool {
 }
 
 // SearchResult 是一次搜索的完整结果。
+//
+// 无 # 并集搜索时有两个独立游标：NextOffset（全文 q 的游标）与 NextOffsetTag
+// （标签 #q 的游标）。两个来源的结果集在 msgID 空间上互相穿插，单一游标无法
+// 同时推进两源（全文游标传给标签查询可能排他排除标签的全部结果，反之亦然），
+// 所以续拉必须各自带自己的游标，任一源拉完（游标为 0/负）则跳过该源。
 type SearchResult struct {
-	Results    []*MessageInfo `json:"results"`
-	NextOffset int            `json:"nextOffset"`
-	Count      int            `json:"count"`
+	Results       []*MessageInfo `json:"results"`
+	NextOffset    int            `json:"nextOffset"`
+	NextOffsetTag int            `json:"nextOffsetTag"`
+	Count         int            `json:"count"`
 }
 
-// SearchMessages 在单个频道内搜索消息文本（含 # 标签）。
-// 服务器端索引（messages.search），频道多大都是亚秒级。
 // SearchMessages 在单个频道内搜索消息文本（含 # 标签）。
 // 服务器端索引（messages.search），频道多大都是亚秒级。
 //
@@ -36,8 +41,11 @@ type SearchResult struct {
 // 匹配不到 #标签 里的内容（热带鱼 0 条 vs #热带鱼 24 条，实测），所以同时搜
 // q（全文）和 #q（标签）合并去重，用户无论输入 # 与否都能找到标签消息。
 // 有 # 前缀时只搜原样（标签精确匹配）。
+//
+// offsetID/offsetTag 是两源各自的续拉游标（传上次返回的 nextOffset/nextOffsetTag），
+// 为 0 表示从最新开始，为负表示该源已拉完、跳过不再查询。
 func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage,
-	chatID, q string, offsetID, limit int) (*SearchResult, error) {
+	chatID, q string, offsetID, offsetTag, limit int) (*SearchResult, error) {
 
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(c.API())
 	peer, err := tutil.GetInputPeer(ctx, manager, chatID)
@@ -50,19 +58,19 @@ func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage
 
 	hasHash := strings.Contains(q, "#")
 	if !hasHash {
-		// 无 #：搜 q（全文）+ #q（标签）并集，去重合并
+		// 无 #：搜 q（全文）+ #q（标签）并集，去重合并；两源游标独立推进
 		full, ferr := searchOnce(ctx, c, manager, peer, q, offsetID, limit)
 		if ferr != nil {
 			return nil, ferr
 		}
-		tag, terr := searchOnce(ctx, c, manager, peer, "#"+q, offsetID, limit)
+		tag, terr := searchOnce(ctx, c, manager, peer, "#"+q, offsetTag, limit)
 		if terr != nil {
 			return nil, terr
 		}
 		return mergeResults(full, tag), nil
 	}
 
-	// 有 #：只搜原样（标签精确匹配）
+	// 有 #：只搜原样（标签精确匹配），单游标
 	res, err := searchOnce(ctx, c, manager, peer, q, offsetID, limit)
 	if err != nil {
 		return nil, err
@@ -71,8 +79,13 @@ func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage
 }
 
 // searchOnce 执行一次 messages.search 并转成 SearchResult。
+// offsetID < 0 表示该源已拉完（调用方跳过），直接返回空结果，不发起 RPC。
 func searchOnce(ctx context.Context, c *telegram.Client, manager *peers.Manager,
 	peer peers.Peer, q string, offsetID, limit int) (*SearchResult, error) {
+
+	if offsetID < 0 {
+		return &SearchResult{}, nil
+	}
 
 	res, err := c.API().MessagesSearch(ctx, &tg.MessagesSearchRequest{
 		Peer:     peer.InputPeer(),
@@ -109,9 +122,10 @@ func searchOnce(ctx context.Context, c *telegram.Client, manager *peers.Manager,
 	return &SearchResult{Results: out, NextOffset: nextOffset, Count: ch.Count}, nil
 }
 
-// mergeResults 合并两个搜索结果（无 # 并集），按 msgID 去重。
-// 分页语义：以第一个（全文）的 NextOffset 为主（并集分页复杂，首屏合并足够，
-// 续拉时主查询 offset 前进）。Count 取两源 count 之和减重复（近似）。
+// mergeResults 合并两个搜索结果（无 # 并集），按 msgID 去重并按 msgID 倒序排列。
+// 返回两源各自的续拉游标（NextOffset=全文、NextOffsetTag=标签）——两源结果集在
+// msgID 空间互相穿插，续拉必须各自带自己的游标才能保证不丢结果（单一游标会把
+// 另一源的结果排他排除）。Count 取两源 count 之和减重复（近似，仅展示用）。
 func mergeResults(a, b *SearchResult) *SearchResult {
 	if a == nil {
 		return b
@@ -128,10 +142,14 @@ func mergeResults(a, b *SearchResult) *SearchResult {
 		seen[m.ID] = true
 		merged = append(merged, m)
 	}
+	// 合并后按 msgID 倒序（新→旧）：两源页面本身各自有序，但并集穿插后
+	// 顺序错乱（可能先显示旧结果再显示新结果），排序后展示更符合直觉。
+	sort.Slice(merged, func(i, j int) bool { return merged[i].ID > merged[j].ID })
 	return &SearchResult{
-		Results:    merged,
-		NextOffset: a.NextOffset, // 主查询（全文）的游标
-		Count:      a.Count + b.Count - (len(a.Results) + len(b.Results) - len(merged)),
+		Results:       merged,
+		NextOffset:    a.NextOffset,    // 全文源游标
+		NextOffsetTag: b.NextOffset,    // 标签源游标
+		Count:         a.Count + b.Count - (len(a.Results) + len(b.Results) - len(merged)),
 	}
 }
 

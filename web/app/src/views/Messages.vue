@@ -336,7 +336,8 @@ const searchQuery = ref('')
 // IME 组合态标记：中文输入（拼音）组合期间不触发搜索，compositionend 后才搜
 const composing = ref(false)
 const searchResults = ref([])
-const searchOffset = ref(0)
+const searchOffset = ref(0) // 全文源续拉游标（0 = 已拉完）
+const searchOffsetTag = ref(0) // 标签源续拉游标（0 = 已拉完），无 # 并集搜索用
 const searchCount = ref(0)
 const searchLoading = ref(false)
 const searchHasMore = ref(false)
@@ -359,25 +360,28 @@ function onSearchInput() {
   searchTimer = setTimeout(() => doSearch(0), 300) // 防抖
 }
 
-async function doSearch(offset) {
+async function doSearch(offset, offsetTag = 0) {
   if (!current.value || !validSearchQuery(searchQuery.value)) return
   const chatId = current.value.id
   const q = searchQuery.value // 捕获发起时的查询词
   const seq = ++searchSeq
   searchLoading.value = true
   try {
-    const d = await api.searchMessages(chatId, { q, offset })
+    const d = await api.searchMessages(chatId, { q, offset, offsetTag })
     // 竞态守卫：响应时查询词或频道已变则丢弃（旧词响应不得覆盖新词结果）
     if (current.value?.id !== chatId || searchQuery.value !== q) return
     if (offset === 0) {
       searchResults.value = d.results || []
       searchOffset.value = d.nextOffset || 0
+      searchOffsetTag.value = d.nextOffsetTag || 0
       searchCount.value = d.count || 0
     } else {
       searchResults.value.push(...(d.results || []))
       searchOffset.value = d.nextOffset || 0
+      searchOffsetTag.value = d.nextOffsetTag || 0
     }
-    searchHasMore.value = searchOffset.value > 0
+    // 并集双游标：任一源还有余量即可续拉（0 = 该源已拉完）
+    searchHasMore.value = searchOffset.value > 0 || searchOffsetTag.value > 0
   } catch (e) {
     if (e.name === 'AbortError') return
     ElMessage.error(e.message || '搜索失败')
@@ -408,11 +412,11 @@ function onDocMouseDown(e) {
     closeSearch()
   }
 }
-// 滚动结果到底部续拉
+// 滚动结果到底部续拉（并集双游标：全文/标签各自推进，任一有余量继续）
 function onSearchScroll(e) {
   const el = e.target
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100 && searchHasMore.value && !searchLoading.value) {
-    doSearch(searchOffset.value)
+    doSearch(searchOffset.value, searchOffsetTag.value)
   }
 }
 // 点击结果：取上下文 → 替换列表 → 定位
