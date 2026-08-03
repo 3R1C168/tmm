@@ -60,15 +60,6 @@
             <button v-if="searchQuery" class="search-clear" @click="clearSearch">✕</button>
           </div>
           <el-checkbox v-model="mediaOnly" size="small" @change="reloadMessages">只看媒体</el-checkbox>
-          <!-- 手动模式「标记已读」按钮：autoRead 关闭时显示（手动标记全部已读），有未读分界才需要 -->
-          <button
-            v-if="current && current.readInboxMaxId > 0 && !settings.autoRead"
-            class="chat-read-btn"
-            @click="markReadCurrent(true)"
-            title="标记全部已读"
-          >
-            标记已读
-          </button>
           <button class="chat-refresh-btn" :disabled="msgsLoading" @click="reloadMessages(true)" title="刷新消息">
             <RefreshCw v-if="!msgsLoading" :size="14" />
             <Loader2 v-else :size="14" class="spin" />
@@ -279,18 +270,6 @@
         <transition name="fab">
           <button v-if="showBackTop" class="back-top" @click="backToTop" title="回到最新"><ArrowUp :size="20" /></button>
         </transition>
-
-        <!-- 未读跳转按钮：方向随位置动态（未读区↑跳未读末尾=已读；历史区↓回第一条未读） -->
-        <button
-          v-if="current && hasUnread"
-          class="jump-btn"
-          :class="{ 'up': inUnreadArea, 'down': !inUnreadArea }"
-          @click="jumpUnread"
-          :title="inUnreadArea ? '跳到未读末尾（全部已读）' : '回到第一条未读'"
-        >
-          <ArrowUp v-if="inUnreadArea" :size="20" />
-          <ArrowDown v-else :size="20" />
-        </button>
       </template>
     </section>
 
@@ -386,17 +365,13 @@ import LazyThumb from '../components/LazyThumb.vue'
 import TelegraphReader from '../components/TelegraphReader.vue'
 import CommentsPanel from '../components/CommentsPanel.vue'
 import ReactionBadge from '../components/ReactionBadge.vue'
-import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ArrowDown, ExternalLink, MessageCircle, CircleCheckBig } from 'lucide-vue-next'
+import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink, MessageCircle, CircleCheckBig } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
 import { loadDownloadHistory, addDownloadedKey, isDownloaded } from '../utils/downloadHistory'
 
 const router = useRouter()
 const store = useAppStore()
 const player = usePlayerStore()
-// 已读设置（autoRead）：无 settings store，与 Settings.vue 同模式从 api 读取；
-// 默认 true（与后端 defaultSettings 一致），onMounted 拉取真实值覆盖
-const settings = ref({ autoRead: true })
-
 const chats = ref([])
 const chatsLoading = ref(false)
 const search = ref('')
@@ -452,13 +427,6 @@ const unreadLastId = computed(() => {
 // 是否真有未读（跳转按钮显隐 + 分隔线开关）：未读起点在已加载最新之下才成立。
 // 全已读（readInboxMaxId = 最新，如刚 markRead 后）时 readInboxMaxId+1 > 最新 → 无未读
 const hasUnread = computed(() => unreadFirstId.value > 0 && unreadLastId.value > 0 && unreadFirstId.value <= unreadLastId.value)
-// 当前是否在未读区（↑ 跳未读末尾=已读）vs 已读历史（↓ 回第一条未读）
-const inUnreadArea = ref(true) // 默认在未读区（进入定位到第一条未读）
-// 当前视口顶部条目 index（vue-virtual-scroller 无 getCurrentIndex，用 emit-update 跟踪）
-const currentVisibleIndex = ref(0)
-// 视口底部条目 index（onScrollerUpdate 的 visibleEndIndex），用于算视口内最大消息 id
-const visibleEndIndex = ref(0)
-
 // --- 频道内搜索状态（独立于 messages/session，不污染现有分页/筛选） ---
 const searchOpen = ref(false)
 const searchQuery = ref('')
@@ -617,9 +585,6 @@ let probedChatId = null // 已探测过的频道，切回不重复探测
 const chatState = new Map()
 let msgAbort = null
 let retryTimer = null // 503 重连重试的定时器，切频道时清除
-// 滚动视口自动已读的节流定时器：滚动停止 500ms 后调一次，避免每滚一像素就 RPC
-let autoReadDebounce = null
-
 const allFilteredCount = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return chats.value.length
@@ -693,11 +658,6 @@ onMounted(async () => {
   await loadChats()
   await nextTick()
   setupChatObserver()
-  // 拉取已读设置（autoRead），失败保持默认 true（与后端 defaultSettings 一致）
-  try {
-    const s = await api.getSettings()
-    if (s && typeof s.autoRead === 'boolean') settings.value.autoRead = s.autoRead
-  } catch { /* 默认自动已读 */ }
   document.addEventListener('mousedown', onDocMouseDown) // 外部点击关闭搜索下拉
   // 下载历史：初始化已下载坐标集（判断下载按钮是否变勾）
   refreshDownloadHistory()
@@ -716,7 +676,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocMouseDown)
   if (chatObserver) { chatObserver.disconnect(); chatObserver = null }
   if (searchTimer) clearTimeout(searchTimer)
-  if (autoReadDebounce) clearTimeout(autoReadDebounce)
   if (downloadHistoryEvents) { downloadHistoryEvents(); downloadHistoryEvents = null }
   abortPending()
 })
@@ -931,56 +890,12 @@ function onMsgScroll() {
     loadMore()
   }
   showBackTop.value = el.scrollTop > 400
-  updateInUnreadArea()
-  // 滚动视口自动已读：节流（停止滚动 500ms 后调一次）+ maxId 去重
-  if (autoReadDebounce) clearTimeout(autoReadDebounce)
-  autoReadDebounce = setTimeout(maybeAutoReadVisible, 500)
 }
 
 // vue-virtual-scroller 的 update 事件：参数为 [startIndex, endIndex, visibleStartIndex, visibleEndIndex]
-// （本组件没有 getCurrentIndex 方法）。在未读区分隔线之上（index < dividerIdx）= 未读区。
-function onScrollerUpdate(_startIndex, _endIndex, visibleStartIndex, visibleEndIndex_) {
-  currentVisibleIndex.value = visibleStartIndex || 0
-  visibleEndIndex.value = visibleEndIndex_ || 0
-  updateInUnreadArea()
-}
+// 无自动已读后仅保留占位（DynamicScroller emit-update 需要），不追踪视口。
+function onScrollerUpdate() {}
 
-function updateInUnreadArea() {
-  // 简化判断：滚动位置 <= 分隔线位置 = 在未读区；否则在历史
-  // 用 displayItems 找分隔线 index，比较 scroller 当前 index
-  const dividerIdx = displayItems.value.findIndex((it) => it.type === 'divider')
-  inUnreadArea.value = dividerIdx < 0 || currentVisibleIndex.value < dividerIdx
-}
-
-// 取单条消息或相册组的代表 id（组内第一条——同组消息 id 接近，用第一条即可）
-function itemMaxId(item) {
-  if (item.type === 'msg' && item.msg) return item.msg.id
-  if (item.type === 'album' && item.msgs?.length) return item.msgs[0].id
-  return null
-}
-
-// 视口内可见的最大消息 id（倒序下顶部 index 对应最大 id）。
-// 用 visibleStartIndex（顶部）那条即可——它是可视区 id 最大的消息；
-// 若顶部是 divider（未读分界），往下一格取未读区第一条。
-function visibleMaxMsgId() {
-  if (!displayItems.value.length) return null
-  const top = displayItems.value[currentVisibleIndex.value]
-  return itemMaxId(top)
-}
-
-// 右下角跳转按钮：方向随位置动态
-// - 在未读区（默认）：↑ 跳到未读末尾（最后一条未读=最新）→ 触发已读
-// - 在已读历史（往下滚过分隔线）：↓ 回第一条未读（不触发已读）
-function jumpUnread() {
-  if (inUnreadArea.value) {
-    // ↑ 跳未读末尾 = 最新 = 全频道已读
-    scrollToMsg(unreadLastId.value)
-    markReadCurrent()
-  } else {
-    // ↓ 回第一条未读
-    scrollToMsg(unreadFirstId.value)
-  }
-}
 // 公共已读：调 RPC + 推进本地分界 + 刷新徽标。maxId 是「标记 ≤maxId 已读」。
 async function doMarkRead(maxId) {
   if (!current.value || !maxId) return
@@ -991,20 +906,9 @@ async function doMarkRead(maxId) {
   } catch { /* 静默 */ }
 }
 
-async function markReadCurrent(force = false) {
+async function markReadCurrent() {
   if (!current.value || !unreadLastId.value) return
-  if (!force && !settings.value.autoRead) return
   await doMarkRead(unreadLastId.value)
-}
-
-// 滚动视口自动已读（仅自动模式）：视口内最大消息 id > 当前已读分界才推进。
-// 未读按已查看条数递减：服务器端 maxID 语义 = ≤maxID 全读，maxID 之后即剩余未读。
-async function maybeAutoReadVisible() {
-  if (!settings.value.autoRead) return          // 仅自动模式
-  if (!current.value?.readInboxMaxId) return    // 无未读分界（无未读/未定位）
-  const maxId = visibleMaxMsgId()
-  if (!maxId || maxId <= current.value.readInboxMaxId) return // 无新推进（去重）
-  await doMarkRead(maxId)
 }
 function refreshChatsUnread() {
   // 刷新会话列表未读徽标（api.listChats(true) 或本地更新）
