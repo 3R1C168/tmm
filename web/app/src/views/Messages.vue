@@ -49,6 +49,8 @@
               v-model="searchQuery"
               placeholder="搜索本频道…"
               @input="onSearchInput"
+              @compositionstart="composing = true"
+              @compositionend="composing = false; onSearchInput()"
               @keydown.esc="closeSearch"
               @focus="searchOpen = true"
             />
@@ -331,6 +333,8 @@ const reconnecting = ref(false)
 // --- 频道内搜索状态（独立于 messages/session，不污染现有分页/筛选） ---
 const searchOpen = ref(false)
 const searchQuery = ref('')
+// IME 组合态标记：中文输入（拼音）组合期间不触发搜索，compositionend 后才搜
+const composing = ref(false)
 const searchResults = ref([])
 const searchOffset = ref(0)
 const searchCount = ref(0)
@@ -346,6 +350,7 @@ function validSearchQuery(q) {
 
 function onSearchInput() {
   clearTimeout(searchTimer)
+  if (composing.value) return // IME 组合中（拼音），等 compositionend 再搜
   if (!validSearchQuery(searchQuery.value)) {
     searchResults.value = []
     searchHasMore.value = false
