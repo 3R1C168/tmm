@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 
+	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
@@ -93,4 +94,20 @@ func FetchDialogs(ctx context.Context, c *telegram.Client, kvd storage.Storage) 
 	})
 
 	return result, nil
+}
+
+// FetchMarkRead 标记会话 ≤maxID 的消息已读（messages.readHistory）。
+func FetchMarkRead(ctx context.Context, c *telegram.Client, kvd storage.Storage, chatID string, maxID int) error {
+	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(c.API())
+	peer, err := tutil.GetInputPeer(ctx, manager, chatID)
+	if err != nil {
+		return errors.Wrap(err, "resolve chat")
+	}
+	if _, err := c.API().MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{
+		Peer:  peer.InputPeer(),
+		MaxID: maxID,
+	}); err != nil {
+		return errors.Wrap(err, "mark read")
+	}
+	return nil
 }

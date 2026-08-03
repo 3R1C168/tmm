@@ -414,6 +414,7 @@ type updateSettingsRequest struct {
 	TakeoutMinMB       *int    `json:"takeoutMinMB"`
 	CacheMaxMB         *int    `json:"cacheMaxMB"`
 	ClearPreviewOnExit *bool   `json:"clearPreviewOnExit"`
+	AutoRead           *bool   `json:"autoRead"`
 	MsgIdPrefix        *bool   `json:"msgIdPrefix"`
 	FilenameMaxLen     *int    `json:"filenameMaxLen"`
 	ChannelIdPrefix    *bool   `json:"channelIdPrefix"`

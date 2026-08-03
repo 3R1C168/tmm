@@ -375,6 +375,27 @@ func (s *Server) handleChatAround(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
 }
 
+// handleMarkRead 标记频道消息已读（≤maxID）。仿桌面端「跳到未读末尾=已读」。
+func (s *Server) handleMarkRead(w http.ResponseWriter, r *http.Request) {
+	a := s.activeAccount()
+	if a == nil {
+		writeErr(w, http.StatusBadRequest, errString("尚未登录账号"))
+		return
+	}
+	chatID := mux.Vars(r)["id"]
+	maxID, _ := strconv.Atoi(r.URL.Query().Get("max_id"))
+	if maxID <= 0 {
+		writeErr(w, http.StatusBadRequest, errString("max_id 无效"))
+		return
+	}
+	if err := chat.FetchMarkRead(r.Context(), a.client, a.kvd, chatID, maxID); err != nil {
+		s.log().Warn("mark read failed", zap.String("chat", chatID), zap.Int("maxId", maxID), zap.Error(err))
+		writeErr(w, http.StatusServiceUnavailable, errString("连接重连中，请稍候"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // handleChatReplies pages a channel post's comment section (newest first,
 // read-only). Query: offset_id (cursor), limit. 无缓存无单飞——锚点相关的
 // 查询，高频缓存收益低、正确性风险高（消息被删/新回复），同 handleChatAround 理由。

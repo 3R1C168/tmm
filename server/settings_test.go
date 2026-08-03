@@ -41,6 +41,23 @@ func TestSettings_SnapshotIncludesNewFields(t *testing.T) {
 // strptr returns a pointer to s for tests that exercise pointer-typed fields.
 func strptr(s string) *string { return &s }
 
+// boolPtr returns a pointer to b for tests that exercise pointer-typed fields.
+func boolPtr(b bool) *bool { return &b }
+
+// AutoRead 默认开、update 可关、snapshot 包含：自动已读开关的三态行为。
+// update 会 save() 落盘，所以用临时目录路径（空路径会让 save 的 rename 失败）。
+func TestSettingsAutoReadDefaultAndUpdate(t *testing.T) {
+	st := defaultSettings(filepath.Join(t.TempDir(), "settings.json"))
+	require.True(t, st.AutoRead, "默认自动已读")
+	// 手动模式
+	err := st.update(&updateSettingsRequest{AutoRead: boolPtr(false)})
+	require.NoError(t, err)
+	require.False(t, st.AutoRead)
+	// snapshot 包含
+	snap := st.snapshot()
+	require.Equal(t, false, snap["autoRead"])
+}
+
 // 下载目录清除分支：update 收到 downloadDir 空字符串时必须清空设置值（回落到默认目录），
 // 而不是被 nil 判断跳过。UI 侧修复（Settings.vue 发空串而非省略该字段）依赖此分支。
 func TestSettings_UpdateDownloadDir_Clear(t *testing.T) {
