@@ -85,3 +85,52 @@ func TestLinkPreviewNonWebPageMedia(t *testing.T) {
 	require.Nil(t, info.LinkPreview)
 	require.True(t, info.HasMedia)
 }
+
+func TestMessageReactionsExtract(t *testing.T) {
+	m := &tg.Message{Message: "hi"}
+	m.SetReactions(tg.MessageReactions{
+		Results: []tg.ReactionCount{
+			{Reaction: &tg.ReactionEmoji{Emoticon: "🔥"}, Count: 5},
+			{Reaction: &tg.ReactionEmoji{Emoticon: "👍"}, Count: 3},
+		},
+	})
+	info := messageInfoFrom(m)
+	require.Len(t, info.Reactions, 2)
+	require.Equal(t, "🔥", info.Reactions[0].Emoji)
+	require.Equal(t, 5, info.Reactions[0].Count)
+	require.Equal(t, "👍", info.Reactions[1].Emoji)
+	require.Equal(t, 3, info.Reactions[1].Count)
+}
+
+func TestMessageReactionsSkipCustomEmoji(t *testing.T) {
+	m := &tg.Message{Message: "hi"}
+	m.SetReactions(tg.MessageReactions{
+		Results: []tg.ReactionCount{
+			{Reaction: &tg.ReactionCustomEmoji{DocumentID: 999}, Count: 2},
+			{Reaction: &tg.ReactionEmoji{Emoticon: "❤️"}, Count: 1},
+		},
+	})
+	info := messageInfoFrom(m)
+	require.Len(t, info.Reactions, 1)
+	require.Equal(t, "❤️", info.Reactions[0].Emoji)
+	require.Equal(t, 1, info.Reactions[0].Count)
+}
+
+func TestMessageRepliesExtract(t *testing.T) {
+	m := &tg.Message{Message: "post"}
+	replies := tg.MessageReplies{Comments: true, Replies: 12}
+	replies.SetChannelID(987654321) // ChannelID 是 conditional 字段，必须 Set helper 设 flag
+	m.SetReplies(replies)
+	info := messageInfoFrom(m)
+	require.NotNil(t, info.Replies)
+	require.Equal(t, 12, info.Replies.Count)
+	require.True(t, info.Replies.HasComments)
+	require.Equal(t, int64(987654321), info.Replies.ChannelID)
+}
+
+func TestMessageRepliesAbsent(t *testing.T) {
+	m := &tg.Message{Message: "plain"}
+	info := messageInfoFrom(m)
+	require.Nil(t, info.Replies)
+	require.Nil(t, info.Reactions)
+}

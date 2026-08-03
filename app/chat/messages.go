@@ -50,6 +50,19 @@ type ThumbInfo struct {
 	DC   int
 }
 
+// MessageRepliesInfo is a channel post's comment-section summary.
+type MessageRepliesInfo struct {
+	Count       int   `json:"count"`                 // total replies/comments
+	ChannelID   int64 `json:"channelId,omitempty"`   // discussion supergroup ID (comments live there)
+	HasComments bool  `json:"hasComments,omitempty"` // this is a channel-post comment section
+}
+
+// MessageReaction is one emoji reaction and its count.
+type MessageReaction struct {
+	Emoji string `json:"emoji"`
+	Count int    `json:"count"`
+}
+
 // MessageInfo is one chat message for the service message-browser.
 type MessageInfo struct {
 	ID        int           `json:"id"`
@@ -65,6 +78,13 @@ type MessageInfo struct {
 	// message (e.g. a Telegraph link). Unlike Media it is not a downloadable
 	// attachment; the browser renders it as a card.
 	LinkPreview *LinkPreview `json:"linkPreview,omitempty"`
+	// Replies carries the message's comment-section info (count + discussion
+	// group), attached by Telegram to channel posts with an open comment
+	// section. Zero RPC — the field rides along with the message.
+	Replies *MessageRepliesInfo `json:"replies,omitempty"`
+	// Reactions lists the message's emoji reactions (custom-emoji premium
+	// reactions are skipped). Also zero RPC — attached to the message.
+	Reactions []MessageReaction `json:"reactions,omitempty"`
 }
 
 // LinkPreview is a message's inline web-page preview, carried free by Telegram
@@ -165,16 +185,61 @@ func messageInfoFrom(m *tg.Message) *MessageInfo {
 		info.LinkPreview = lp
 	}
 	if hasMedia {
-		mm := &MessageMedia{Name: media.Name, Size: media.Size, DC: media.DC}
-		mm.Width, mm.Height = mediaDimensions(m)
-		mm.Mime = mediaMime(m)
-		mm.Thumb = extractThumb(m)
-		if st := tmedia.GetStrippedThumb(m); st != nil {
-			mm.Stripped = &StrippedThumb{DataURI: st.DataURI, W: st.W, H: st.H}
-		}
-		info.Media = mm
+		info.Media = messageMediaFrom(m, media)
+	}
+	if re := repliesFrom(m); re != nil {
+		info.Replies = re
+	}
+	if rc := reactionsFrom(m); len(rc) > 0 {
+		info.Reactions = rc
 	}
 	return info
+}
+
+// messageMediaFrom builds the downloadable-media struct for a message that
+// carries media. Shared by messageInfoFrom and commentInfoFrom (Task 2).
+func messageMediaFrom(m *tg.Message, media *tmedia.Media) *MessageMedia {
+	mm := &MessageMedia{Name: media.Name, Size: media.Size, DC: media.DC}
+	mm.Width, mm.Height = mediaDimensions(m)
+	mm.Mime = mediaMime(m)
+	mm.Thumb = extractThumb(m)
+	if st := tmedia.GetStrippedThumb(m); st != nil {
+		mm.Stripped = &StrippedThumb{DataURI: st.DataURI, W: st.W, H: st.H}
+	}
+	return mm
+}
+
+// repliesFrom extracts a message's comment-section info. nil when the message
+// has no replies at all. ChannelID is conditional in gotd — read via helper.
+func repliesFrom(m *tg.Message) *MessageRepliesInfo {
+	re, ok := m.GetReplies()
+	if !ok {
+		return nil
+	}
+	info := &MessageRepliesInfo{Count: re.Replies, HasComments: re.Comments}
+	if cid, ok := re.GetChannelID(); ok {
+		info.ChannelID = cid
+	}
+	if info.Count == 0 && !info.HasComments {
+		return nil // no real comment section
+	}
+	return info
+}
+
+// reactionsFrom extracts a message's emoji reactions. Premium custom-emoji
+// reactions (ReactionCustomEmoji) are skipped — v1 doesn't render them.
+func reactionsFrom(m *tg.Message) []MessageReaction {
+	re, ok := m.GetReactions()
+	if !ok {
+		return nil
+	}
+	var out []MessageReaction
+	for _, rc := range re.Results {
+		if em, ok := rc.Reaction.(*tg.ReactionEmoji); ok {
+			out = append(out, MessageReaction{Emoji: em.Emoticon, Count: rc.Count})
+		}
+	}
+	return out
 }
 
 // mediaDimensions extracts the width/height of a message's media (video or
