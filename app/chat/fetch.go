@@ -23,6 +23,9 @@ type DialogInfo struct {
 	Username    string `json:"username,omitempty"`
 	UnreadCount int    `json:"unreadCount"`
 	Pinned      bool   `json:"pinned,omitempty"`
+	// ReadInboxMaxID 是该会话已读到的最大消息 ID（未读起点 = +1）。
+	// 来自 gotd Dialog.ReadInboxMaxID，随对话列表免费附带。
+	ReadInboxMaxID int `json:"readInboxMaxId,omitempty"`
 }
 
 // FetchDialogs lists the account's dialogs for the service layer. It reuses
@@ -78,6 +81,7 @@ func FetchDialogs(ctx context.Context, c *telegram.Client, kvd storage.Storage) 
 		if dlg, ok := d.Dialog.(*tg.Dialog); ok {
 			info.UnreadCount = dlg.UnreadCount
 			info.Pinned = dlg.Pinned
+			info.ReadInboxMaxID = dlg.ReadInboxMaxID
 		}
 		result = append(result, info)
 	}
