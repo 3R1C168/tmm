@@ -144,6 +144,15 @@
                     <div v-if="albumText(item)" class="text">{{ albumText(item) }}</div>
                     <div class="meta">
                       <span v-if="item.views" class="meta-views"><Eye :size="11" /> {{ item.views }}</span>
+                      <!-- 相册评论入口：组内第一条带评论区的消息（同组讨论组相同） -->
+                      <span
+                        v-if="albumComments(item)"
+                        class="meta-views meta-comments"
+                        title="查看评论区"
+                        @click.stop="openComments(albumComments(item))"
+                      >
+                        <MessageCircle :size="11" /> {{ albumComments(item).replies.count }}
+                      </span>
                       <span>{{ fmtDate(item.date) }}</span>
                       <button class="media-dl-btn" @click.stop="downloadAlbum(item)" title="下载整组({{ item.msgs.length }})"><Download :size="16" /></button>
                     </div>
@@ -818,6 +827,16 @@ function toggleSelectAlbum(album) {
 function albumText(album) {
   for (const m of album.msgs) { if (m.text && m.text.trim()) return m.text }
   return ''
+}
+
+// albumComments returns the first message in the album that carries a real
+// comment section (replies.count>0 && channelId). Same discussion group for
+// the whole album, so any qualifying message opens the right comment panel.
+function albumComments(album) {
+  for (const m of album.msgs) {
+    if (m.replies && m.replies.count > 0 && m.replies.channelId) return m
+  }
+  return null
 }
 
 // --- 相册拼图布局（照 telegram-tt calculateAlbumLayout） ---
