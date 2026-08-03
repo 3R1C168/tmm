@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/go-faster/errors"
 
@@ -83,7 +85,10 @@ func (s *store) save() error {
 		}
 	}
 
-	tmp := s.path + ".tmp"
+	// tmp 用唯一后缀：worker 的 run() 与 handler（fileBatch/resume/pause）可能并发
+	// upsert，若共用固定 .tmp 名会互相覆盖/撞 rename（Windows 上句柄未释放时报错）。
+	// 每次写用新 tmp 文件，rename 原子替换，天然容忍并发。
+	tmp := fmt.Sprintf("%s.tmp.%d", s.path, time.Now().UnixNano())
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return errors.Wrap(err, "write task store")
 	}
