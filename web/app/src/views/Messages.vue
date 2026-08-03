@@ -846,9 +846,14 @@ function playAudio(m) {
   player.play({ chatId: current.value.id, msgId: m.id, name: m.media.name, size: m.media.size })
 }
 
-// 定位到消息：在 displayItems（相册聚合后）里找该消息的索引并滚动过去
+// 定位到消息：在 displayItems（相册聚合后）里找该消息的索引并滚动过去。
+// 命中消息可能被聚合成相册项（type === 'album'，msgs 数组），需在 msgs 里
+// 匹配——否则搜索命中带 caption 的相册消息时找不到目标，scroller 停在旧位置。
 function scrollToMsg(msgId) {
-  const idx = displayItems.value.findIndex((it) => it.type === 'msg' && it.msg?.id === msgId)
+  const idx = displayItems.value.findIndex((it) =>
+    (it.type === 'msg' && it.msg?.id === msgId) ||
+    (it.type === 'album' && (it.msgs || []).some((m) => m.id === msgId))
+  )
   if (idx >= 0 && scrollerRef.value) {
     scrollerRef.value.scrollToItem(idx)
   }

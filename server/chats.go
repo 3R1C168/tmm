@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha1"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -254,7 +256,12 @@ func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 
-	cacheKey := "search_" + a.ns + "_" + chatID + "_" + q + "_" + strconv.Itoa(offset)
+	// cacheKey 里 q 用 sha1 前 16 位十六进制哈希替代原文：q 可含 Windows
+	// 文件系统非法字符（: * / \ 等），直接拼进 meta 文件名会导致 writeMeta
+	// 静默失败（缓存永不命中）；哈希也避免超长查询撑爆文件名。16 位十六进制
+	// （64 bit）碰撞概率可忽略。
+	qHash := fmt.Sprintf("%x", sha1.Sum([]byte(q)))[:16]
+	cacheKey := "search_" + a.ns + "_" + chatID + "_" + qHash + "_" + strconv.Itoa(offset)
 
 	// 缓存命中
 	var cachedRes chat.SearchResult
