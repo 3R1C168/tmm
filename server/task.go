@@ -81,6 +81,13 @@ func (m *taskManager) iterForTask(taskID string) dl.Iter {
 	return m.iter
 }
 
+// isRunning reports whether the worker is currently executing the task.
+func (m *taskManager) isRunning(taskID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.running == taskID
+}
+
 // keysToMsgKeys 把 "peerID/msgID" 字符串转成 dl.MsgKey 切片；解析失败的跳过。
 func keysToMsgKeys(keys []string) []dl.MsgKey {
 	out := make([]dl.MsgKey, 0, len(keys))
@@ -355,8 +362,13 @@ type FileBatchResult struct {
 //        FileDone/FileFailed 不动。
 // 任务 running 时文件级暂停/恢复即时生效：
 //   暂停→iter.PauseKeys（已产出的正在下载文件由 PauseCheck 钩子即刻中断）；
-//   恢复→iter.Unpause（requeue 即时续传）。非 running 时只改状态，下次任务 resume 生效。
-func (m *taskManager) fileBatch(taskID string, action string, keys []string) ([]FileBatchResult, error) {
+//   恢复→iter.Unpause（requeue 即时续传）。
+// 任务非 running 时：恢复分支除改状态外，若任务状态是 resume 可处理的
+//   （paused/failed/interrupted/done）且确有文件被恢复，会调用 m.resume(ctx, taskID)
+//   把任务重新入队重跑 dl.Run（spec §3.4 step 3）；其他 finished 文件会被 iter 的
+//   isFinished 跳过，只下载恢复的文件。pending 任务本就在队列中会自行运行，
+//   running 任务走 iter 即时续传，两者都不需要（也不能）在此 resume。
+func (m *taskManager) fileBatch(ctx context.Context, taskID string, action string, keys []string) ([]FileBatchResult, error) {
 	if action != "pause" && action != "resume" {
 		return nil, errors.Errorf("unknown action: %s", action)
 	}
@@ -421,6 +433,24 @@ func (m *taskManager) fileBatch(taskID string, action string, keys []string) ([]
 				if mk, ok := parseMsgKey(k); ok {
 					iter.Unpause(mk)
 				}
+			}
+		}
+	}
+
+	// 任务非 running 且确有文件被恢复：触发任务 resume 重跑（spec §3.4 step 3）。
+	// 仅当任务状态是 resume 可处理的 paused/failed/interrupted/done 才触发；
+	// pending 任务本就在队列中会自行运行，running 任务走上面的 iter 即时续传，
+	// 两者都不需要（也不能）在此 resume（m.resume 对 running/pending 会返回错误）。
+	// isRunning 兜底 worker 刚把任务取出、Status 尚未更新为 running 的竞态窗口，
+	// 避免对正在执行的任务重复入队。
+	if action == "resume" && len(affected) > 0 && !m.isRunning(taskID) {
+		task.mu.Lock()
+		resumeable := task.Status == StatusPaused || task.Status == StatusFailed ||
+			task.Status == StatusInterrupted || task.Status == StatusDone
+		task.mu.Unlock()
+		if resumeable {
+			if err := m.resume(ctx, taskID); err != nil {
+				return nil, err
 			}
 		}
 	}

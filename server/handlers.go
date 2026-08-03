@@ -328,9 +328,13 @@ func (s *Server) handleFilesBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	results, err := s.tasks.fileBatch(id, req.Action, req.Keys)
+	results, err := s.tasks.fileBatch(r.Context(), id, req.Action, req.Keys)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		if strings.Contains(err.Error(), "task not found") {
+			writeErr(w, http.StatusNotFound, err)
+		} else {
+			writeErr(w, http.StatusBadRequest, err)
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
