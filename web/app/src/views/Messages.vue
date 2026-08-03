@@ -74,7 +74,7 @@
               <LazyThumb :src="api.mediaThumbUrl(current.id, res.id)" :placeholder="res.media?.stripped?.dataUri || ''" />
             </div>
             <div class="search-item-body">
-              <div class="search-item-text">{{ firstLine(res.text) || '(无文本)' }}</div>
+              <div class="search-item-text">{{ firstLine(res.text, 150) || '(无文本)' }}</div>
               <div class="search-item-date muted">{{ dateStrFromTs(res.date) }}</div>
             </div>
           </div>
@@ -1040,7 +1040,7 @@ function fmtDate(ts) {
 /* 频道内全文搜索：头部内联搜索框 */
 .chat-search-inline { flex: none; position: relative; }
 .chat-search-inline input {
-  width: 180px; height: 32px;
+  width: 260px; height: 32px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg); color: var(--text);
   padding: 0 28px 0 12px; outline: none; font-size: 13px;
@@ -1048,7 +1048,7 @@ function fmtDate(ts) {
 }
 .chat-search-inline input::placeholder { color: var(--text-3); }
 .chat-search-inline input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.chat-search-inline.open input { width: 230px; }
+.chat-search-inline.open input { width: 320px; }
 .search-clear {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
   width: 20px; height: 20px; border: none; border-radius: 50%;
@@ -1079,7 +1079,12 @@ function fmtDate(ts) {
 .search-item:hover { background: var(--bg-hover); }
 .search-thumb { flex: none; width: 36px; height: 36px; border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-hover); }
 .search-item-body { flex: 1; min-width: 0; }
-.search-item-text { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-item-text {
+  font-size: 13px; line-height: 1.5;
+  /* 多行展示（最多 3 行），填充右侧空白；超长省略号 */
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; white-space: normal; word-break: break-word;
+}
 .search-item-date { font-size: 11px; margin-top: 2px; }
 .search-empty, .search-more { text-align: center; padding: 12px 0; font-size: 12px; }
 
