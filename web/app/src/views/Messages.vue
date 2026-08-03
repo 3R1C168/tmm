@@ -134,7 +134,7 @@
               <div class="msg-row">
                 <!-- 未读分隔线：未读消息与已读消息的分界 -->
                 <div v-if="item.type === 'divider'" class="unread-divider">
-                  <span>未读消息</span>
+                  <span>以上是未读消息</span>
                 </div>
                 <!-- 相册（groupedId 聚合） -->
                 <div v-else-if="item.type === 'album'" class="msg" :class="{ out: item.out }">
@@ -272,8 +272,9 @@
             </DynamicScrollerItem>
           </DynamicScroller>
 
-          <div v-if="hasMore" class="loading-tip">
-            <el-button size="small" text :loading="loadingMore" @click="loadMore">{{ loadingMore ? '加载中…' : '加载更早的消息' }}</el-button>
+          <!-- 加载更早的消息：底部中央悬浮（不占布局流，滚动时浮动在消息区底部） -->
+          <div v-if="hasMore" class="load-more-float">
+            <el-button size="small" :loading="loadingMore" @click="loadMore">{{ loadingMore ? '加载中…' : '加载更早的消息' }}</el-button>
           </div>
           <div v-else-if="displayItems.length" class="loading-tip muted">已到最早的消息</div>
         </div>
@@ -1383,6 +1384,12 @@ function fmtDate(ts) {
 .msg-scroll .scroller { flex: 1; min-height: 0; padding: 16px 24px 20px; }
 .loading-tip { text-align: center; padding: 8px 0; font-size: 12.5px; }
 .reconnect-tip { color: var(--accent, #4f7cff); animation: reconnect-pulse 1.4s ease-in-out infinite; }
+/* 加载更早的消息：底部中央悬浮，叠在消息列表上方不占布局流 */
+.load-more-float {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+  z-index: 20; pointer-events: auto;
+}
+.load-more-float .el-button { box-shadow: var(--shadow); }
 
 /* 骨架屏：加载消息时的占位卡片，按媒体比例预绘 + 波形动画（借鉴 tt Skeleton）。
    主题色驱动，亮暗自适应。 */
@@ -1551,19 +1558,6 @@ function fmtDate(ts) {
   box-shadow: 0 4px 12px rgba(0,0,0,.25);
 }
 .back-top:hover { filter: brightness(1.1); }
-/* 未读跳转按钮：右下角（在 back-top 上方，位置不重叠），方向随位置动态 */
-.jump-btn {
-  position: absolute; right: 24px; bottom: 80px; z-index: 10;
-  width: 44px; height: 44px; border: none; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; cursor: pointer; transition: .15s;
-  box-shadow: 0 4px 12px rgba(0,0,0,.25);
-}
-/* 未读区（↑）：强调色，跳末尾=已读 */
-.jump-btn.up { background: var(--accent); }
-/* 历史区（↓）：中性灰底，回第一条未读 */
-.jump-btn.down { background: var(--text-3, #999); }
-.jump-btn:hover { filter: brightness(1.1); }
 /* 进出场动画 */
 .fab-enter-active, .fab-leave-active { transition: all .2s ease; }
 .fab-enter-from, .fab-leave-to { opacity: 0; transform: scale(.8) translateY(8px); }

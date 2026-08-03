@@ -194,7 +194,7 @@ async function shutdown() {
 </script>
 
 <style scoped>
-.card { max-width: 640px; margin-bottom: 18px; }
+.card { max-width: 640px; margin: 0 auto 18px; }
 .sec { margin: 0 0 14px; font-size: 15px; }
 .acct { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
 .ainfo { flex: 1; min-width: 0; }

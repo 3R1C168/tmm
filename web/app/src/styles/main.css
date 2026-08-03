@@ -21,7 +21,7 @@
   --green: #22b07d;
   --orange: #f79009;
   --red: #f04438;
-  --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 4px 16px rgba(16, 24, 40, 0.05);
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.10), 0 6px 20px rgba(16, 24, 40, 0.09);
   /* 毛玻璃按钮：亮色透白、暗色透黑，统一半透明 + 文字色 */
   --glass-bg: rgba(255, 255, 255, 0.18);
   --glass-color: #fff;
@@ -37,7 +37,7 @@ html[data-theme="dark"] {
   --text-3: #6b7280;
   --accent: #6b93ff;
   --accent-soft: #25304a;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.32);
   --glass-bg: rgba(0, 0, 0, 0.3);
   --glass-color: #fff;
 }
