@@ -456,6 +456,8 @@ const hasUnread = computed(() => unreadFirstId.value > 0 && unreadLastId.value >
 const inUnreadArea = ref(true) // 默认在未读区（进入定位到第一条未读）
 // 当前视口顶部条目 index（vue-virtual-scroller 无 getCurrentIndex，用 emit-update 跟踪）
 const currentVisibleIndex = ref(0)
+// 视口底部条目 index（onScrollerUpdate 的 visibleEndIndex），用于算视口内最大消息 id
+const visibleEndIndex = ref(0)
 
 // --- 频道内搜索状态（独立于 messages/session，不污染现有分页/筛选） ---
 const searchOpen = ref(false)
@@ -931,8 +933,9 @@ function onMsgScroll() {
 
 // vue-virtual-scroller 的 update 事件：参数为 [startIndex, endIndex, visibleStartIndex, visibleEndIndex]
 // （本组件没有 getCurrentIndex 方法）。在未读区分隔线之上（index < dividerIdx）= 未读区。
-function onScrollerUpdate(_startIndex, _endIndex, visibleStartIndex) {
+function onScrollerUpdate(_startIndex, _endIndex, visibleStartIndex, visibleEndIndex_) {
   currentVisibleIndex.value = visibleStartIndex || 0
+  visibleEndIndex.value = visibleEndIndex_ || 0
   updateInUnreadArea()
 }
 
@@ -941,6 +944,22 @@ function updateInUnreadArea() {
   // 用 displayItems 找分隔线 index，比较 scroller 当前 index
   const dividerIdx = displayItems.value.findIndex((it) => it.type === 'divider')
   inUnreadArea.value = dividerIdx < 0 || currentVisibleIndex.value < dividerIdx
+}
+
+// 取单条消息或相册组的代表 id（组内第一条——同组消息 id 接近，用第一条即可）
+function itemMaxId(item) {
+  if (item.type === 'msg' && item.msg) return item.msg.id
+  if (item.type === 'album' && item.msgs?.length) return item.msgs[0].id
+  return null
+}
+
+// 视口内可见的最大消息 id（倒序下顶部 index 对应最大 id）。
+// 用 visibleStartIndex（顶部）那条即可——它是可视区 id 最大的消息；
+// 若顶部是 divider（未读分界），往下一格取未读区第一条。
+function visibleMaxMsgId() {
+  if (!displayItems.value.length) return null
+  const top = displayItems.value[currentVisibleIndex.value]
+  return itemMaxId(top)
 }
 
 // 右下角跳转按钮：方向随位置动态
