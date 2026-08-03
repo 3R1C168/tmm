@@ -157,8 +157,16 @@
                         <span>{{ fmtDate(item.date) }}</span>
                       </div>
                     </div>
-                    <!-- 下载按钮：气泡外右下角悬浮（meta 行只留信息） -->
-                    <button class="media-dl-float" @click.stop="downloadAlbum(item)" title="下载整组({{ item.msgs.length }})"><Download :size="16" /></button>
+                    <!-- 下载按钮：气泡外右下角悬浮（meta 行只留信息）。已下载变勾 -->
+                    <button
+                      class="media-dl-float"
+                      :class="{ downloaded: albumAllDownloaded(item) }"
+                      @click.stop="downloadAlbum(item)"
+                      :title="albumAllDownloaded(item) ? '已下载，点击可重新下载' : '下载整组(' + item.msgs.length + ')'"
+                    >
+                      <CircleCheckBig v-if="albumAllDownloaded(item)" :size="18" />
+                      <Download v-else :size="16" />
+                    </button>
                   </div>
                 </div>
 
@@ -229,8 +237,17 @@
                       <span>{{ fmtDate(item.msg.date) }}</span>
                     </div>
                   </div>
-                  <!-- 下载按钮：气泡外右下角悬浮（meta 行只留信息） -->
-                  <button class="media-dl-float" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="16" /></button>
+                  <!-- 下载按钮：气泡外右下角悬浮（meta 行只留信息）。已下载变勾 -->
+                  <button
+                    class="media-dl-float"
+                    :class="{ downloaded: isDownloaded(String(current.id), item.msg.id) }"
+                    :disabled="!item.msg.hasMedia"
+                    @click.stop="downloadSingle(item.msg)"
+                    :title="!item.msg.hasMedia ? '无媒体' : (isDownloaded(String(current.id), item.msg.id) ? '已下载，点击可重新下载' : '下载媒体')"
+                  >
+                    <CircleCheckBig v-if="item.msg.hasMedia && isDownloaded(String(current.id), item.msg.id)" :size="18" />
+                    <Download v-else :size="16" />
+                  </button>
                   </div>
                 </div>
               </div>
@@ -342,8 +359,9 @@ import LazyThumb from '../components/LazyThumb.vue'
 import TelegraphReader from '../components/TelegraphReader.vue'
 import CommentsPanel from '../components/CommentsPanel.vue'
 import ReactionBadge from '../components/ReactionBadge.vue'
-import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink, MessageCircle } from 'lucide-vue-next'
+import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink, MessageCircle, CircleCheckBig } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
+import { loadDownloadHistory, addDownloadedKey, isDownloaded } from '../utils/downloadHistory'
 
 const router = useRouter()
 const store = useAppStore()
@@ -597,6 +615,8 @@ const mediaMessages = computed(() => messages.value.filter((m) => m.hasMedia && 
 
 // Lazy-load more chats when the sentinel scrolls into view.
 let chatObserver = null
+// 下载历史 SSE 订阅（组件卸载时关闭）；task 事件里 files[].status=done → 更新已下载
+let downloadHistoryEvents = null
 function setupChatObserver() {
   if (chatObserver) chatObserver.disconnect()
   chatObserver = new IntersectionObserver((entries) => {
@@ -614,6 +634,15 @@ onMounted(async () => {
   await nextTick()
   setupChatObserver()
   document.addEventListener('mousedown', onDocMouseDown) // 外部点击关闭搜索下拉
+  // 下载历史：初始化已下载坐标集（判断下载按钮是否变勾）
+  refreshDownloadHistory()
+  // 订阅任务事件：下载完成实时更新已下载状态（按钮从下载变勾）
+  downloadHistoryEvents = subscribe('/api/events', (type, data) => {
+    if (type !== 'task' || !data || !Array.isArray(data.files)) return
+    for (const f of data.files) {
+      if (f.status === 'done' && f.key) addDownloadedKey(f.key)
+    }
+  })
 })
 
 // 组件卸载时清理：IntersectionObserver、待中的消息请求、重试定时器，
@@ -622,6 +651,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocMouseDown)
   if (chatObserver) { chatObserver.disconnect(); chatObserver = null }
   if (searchTimer) clearTimeout(searchTimer)
+  if (downloadHistoryEvents) { downloadHistoryEvents(); downloadHistoryEvents = null }
   abortPending()
 })
 // 滚动元素 = DynamicScroller 的根 .vue-recycle-scroller（自带 overflow-y:auto）
@@ -846,6 +876,12 @@ function albumComments(album) {
   return null
 }
 
+// albumAllDownloaded 整组都下载过才算已下载（部分下载仍是下载图标，可补下）。
+function albumAllDownloaded(album) {
+  if (!album.msgs.length) return false
+  return album.msgs.every((m) => isDownloaded(String(current.value?.id), m.id))
+}
+
 // --- 相册拼图布局（照 telegram-tt calculateAlbumLayout） ---
 const albumLayoutCache = new Map()
 function albumLayout(album) {
@@ -993,9 +1029,19 @@ async function downloadSelected() {
   if (!selected.value.size || !current.value) return
   await createTask([{ chatId: String(current.value.id), msgIds: [...selected.value] }], {})
 }
+// refreshDownloadHistory 拉取任务列表，重建已下载坐标集（判断下载按钮是否变勾）。
+// 失败静默（下载历史是增强，不影响主流程）。
+async function refreshDownloadHistory() {
+  try {
+    const tasks = await api.listTasks()
+    loadDownloadHistory(Array.isArray(tasks) ? tasks : (tasks && tasks.tasks))
+  } catch { /* 忽略：历史加载失败不阻塞浏览 */ }
+}
+
 async function downloadSingle(m) {
   await createTask([{ chatId: String(current.value.id), msgIds: [m.id] }], {})
 }
+
 async function downloadAlbum(album) {
   const ids = album.msgs.map((m) => m.id)
   await createTask([{ chatId: String(current.value.id), msgIds: ids }], { group: true })
@@ -1259,6 +1305,8 @@ function fmtDate(ts) {
 }
 .media-dl-float:hover:not(:disabled) { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(79,124,255,.4); }
 .media-dl-float:disabled { display: none; }
+/* 已下载状态：圆勾图标绿色（--green token），提示已下载过 */
+.media-dl-float.downloaded { color: var(--green); }
 
 /* 气泡：内容宽度，CSS max-width 封顶（tt: 29rem = 464px） */
 .bubble {
