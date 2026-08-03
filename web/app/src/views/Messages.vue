@@ -1237,15 +1237,16 @@ function fmtDate(ts) {
 .msg .pick { flex: none; margin-top: 10px; }
 .msg.selected .bubble { outline: 2px solid var(--accent); }
 
-/* 下载按钮悬浮在气泡外右下角：wrap 内容定宽 + relative，按钮 absolute 定位其右下。
-   气泡本身有 overflow:hidden（圆角裁图），按钮必须放 wrap 层才能露在气泡外。 */
+/* 下载按钮：小尾巴式悬浮——按钮整体在气泡右下角外侧，右侧与气泡留小空隙，
+   底部贴齐气泡下缘（不盖住气泡内容、不越过气泡底部）。气泡有 overflow:hidden
+   （圆角裁图），按钮必须放 wrap 层才能露在气泡外。 */
 .bubble-wrap { position: relative; width: max-content; max-width: 100%; }
-/* 悬浮下载按钮：气泡右下角外侧，白底圆钮 hover 显蓝。有媒体才显示（纯文本消息无下载） */
+/* 悬浮下载按钮：白底圆钮 hover 显蓝。有媒体才显示（纯文本消息无下载） */
 .media-dl-float {
   position: absolute;
-  right: -12px;
-  bottom: -12px;
-  width: 34px; height: 34px;
+  right: -34px;
+  bottom: 0;
+  width: 30px; height: 30px;
   border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-panel);
