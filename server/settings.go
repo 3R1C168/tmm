@@ -29,8 +29,6 @@ type settings struct {
 	// not re-download. Preview files are cheap to discard: they only save the
 	// seek-ahead buffering of a video you were watching, which is stale next run.
 	ClearPreviewOnExit bool `json:"clearPreviewOnExit"`
-	// AutoRead 进入频道定位未读后是否自动标记已读（false = 手动模式）。
-	AutoRead bool `json:"autoRead"`
 
 	// MsgIdPrefix enables prefixing download filenames with #<MessageID> ,
 	// e.g. "#22713 video.mp4". Helps identify files by their source message.
@@ -62,7 +60,6 @@ type settingsJSON struct {
 	TakeoutMinMB       int     `json:"takeoutMinMB"`
 	CacheMaxMB         int     `json:"cacheMaxMB"`
 	ClearPreviewOnExit *bool   `json:"clearPreviewOnExit"`
-	AutoRead           *bool   `json:"autoRead"`
 	MsgIdPrefix        *bool   `json:"msgIdPrefix"`
 	FilenameMaxLen     *int    `json:"filenameMaxLen"`
 	ChannelIdPrefix    *bool   `json:"channelIdPrefix"`
@@ -76,7 +73,6 @@ func defaultSettings(path string) *settings {
 		TakeoutMinMB:       50,
 		CacheMaxMB:         5120,
 		ClearPreviewOnExit: true,
-		AutoRead:           true,
 		MsgIdPrefix:        false,
 		FilenameMaxLen:     200, // 留余量给 .tmp/.tdlstate 后缀和扩展名
 		ChannelIdPrefix:    false,
@@ -110,9 +106,6 @@ func (st *settings) load() error {
 	st.CacheMaxMB = a.CacheMaxMB
 	if a.ClearPreviewOnExit != nil {
 		st.ClearPreviewOnExit = *a.ClearPreviewOnExit
-	}
-	if a.AutoRead != nil {
-		st.AutoRead = *a.AutoRead
 	}
 	if a.MsgIdPrefix != nil {
 		st.MsgIdPrefix = *a.MsgIdPrefix
@@ -239,9 +232,6 @@ func (st *settings) update(a *updateSettingsRequest) error {
 	}
 	if a.ClearPreviewOnExit != nil {
 		st.ClearPreviewOnExit = *a.ClearPreviewOnExit
-	}
-	if a.AutoRead != nil {
-		st.AutoRead = *a.AutoRead
 	}
 	if a.MsgIdPrefix != nil {
 		st.MsgIdPrefix = *a.MsgIdPrefix
