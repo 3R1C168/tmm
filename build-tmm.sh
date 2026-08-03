@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-tmm.sh — 构建带版本号的 tmm.exe 并部署到 tmm.v11
+# build-tmm.sh — 构建带版本号的 tmm.exe 并部署到 tmm 目录
 #
 # 用法（在 tdl 目录下）：
 #   ./build-tmm.sh           # 只构建后端 exe
@@ -25,19 +25,19 @@ go build -ldflags="-s -w \
   -X github.com/iyear/tdl/pkg/consts.Version=$VERSION \
   -X github.com/iyear/tdl/pkg/consts.Commit=$COMMIT \
   -X github.com/iyear/tdl/pkg/consts.CommitDate=$DATE" \
-  -o ../tmm.v11/tmm.exe .
+  -o ../tmm/tmm.exe .
 
-echo "==> 后端构建完成: ../tmm.v11/tmm.exe ($VERSION)"
+echo "==> 后端构建完成: ../tmm/tmm.exe ($VERSION)"
 
 # --- 可选：前端构建 + 部署 ---
 if [[ "${1:-}" == "web" ]]; then
   echo "==> 构建前端"
   (cd web/app && npm run build)
-  echo "==> 部署前端到 tmm.v11/web"
-  rm -rf ../tmm.v11/web/assets
-  cp -r web/app/dist/assets ../tmm.v11/web/assets
-  cp web/app/dist/index.html ../tmm.v11/web/index.html
+  echo "==> 部署前端到 tmm/web"
+  rm -rf ../tmm/web/assets
+  cp -r web/app/dist/assets ../tmm/web/assets
+  cp web/app/dist/index.html ../tmm/web/index.html
   echo "==> 前端部署完成"
 fi
 
-echo "==> 全部完成。验证版本: ../tmm.v11/tmm.exe version"
+echo "==> 全部完成。验证版本: ../tmm/tmm.exe version"
