@@ -297,8 +297,23 @@ func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
 	s.searchInflight[cacheKey] = c
 	s.searchMu.Unlock()
 
-	// 后台执行（detached ctx，复用 fetchMessagesFlight 模式）
-	c.res, c.err = chat.SearchMessages(context.Background(), a.client, a.kvd, chatID, q, offset, limit)
+	// 后台执行（detached ctx）：每次尝试 15s deadline + 最多 3 次（first + 2 retry），
+	// 与 fetchMessagesFlight 一致——主 client 连接卡死时快速失败，给重连逻辑恢复窗口。
+	const (
+		searchPerAttempt = 15 * time.Second
+		searchMaxAttempt = 3
+	)
+	var serr error
+	for attempt := 0; attempt < searchMaxAttempt; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), searchPerAttempt)
+		c.res, serr = chat.SearchMessages(ctx, a.client, a.kvd, chatID, q, offset, limit)
+		cancel()
+		if serr == nil {
+			break
+		}
+		s.log().Warn("search retry", zap.String("chat", chatID), zap.String("q", q), zap.Int("attempt", attempt+1), zap.Error(serr))
+	}
+	c.err = serr
 	if c.err == nil && c.res != nil && len(c.res.Results) > 0 {
 		_ = s.cache.writeMeta(cacheKey, *c.res)
 	}
