@@ -105,34 +105,14 @@ func FetchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage,
 		}
 		nextCursor = m.ID // track the oldest id seen for the next page
 
-		media, hasMedia := tmedia.GetMedia(m)
+		// mediaOnly 过滤保留在循环里（messageInfoFrom 前判断），
+		// search/around 不需要 mediaOnly，故不放进 messageInfoFrom。
+		_, hasMedia := tmedia.GetMedia(m)
 		if mediaOnly && !hasMedia {
 			continue
 		}
 
-		info := &MessageInfo{
-			ID:       m.ID,
-			Date:     m.Date,
-			Text:     m.Message,
-			Views:    m.Views,
-			Forwards: m.Forwards,
-			Out:      m.Out,
-			HasMedia: hasMedia,
-		}
-		if gid, ok := m.GetGroupedID(); ok {
-			info.GroupedID = gid
-		}
-		if hasMedia {
-			mm := &MessageMedia{Name: media.Name, Size: media.Size, DC: media.DC}
-			mm.Width, mm.Height = mediaDimensions(m)
-			mm.Mime = mediaMime(m)
-			mm.Thumb = extractThumb(m)
-			if st := tmedia.GetStrippedThumb(m); st != nil {
-				mm.Stripped = &StrippedThumb{DataURI: st.DataURI, W: st.W, H: st.H}
-			}
-			info.Media = mm
-		}
-		out = append(out, info)
+		out = append(out, messageInfoFrom(m))
 
 		if !fetchAll && len(out) >= limit {
 			break
@@ -148,6 +128,35 @@ func FetchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage,
 		nextCursor = 0
 	}
 	return out, nextCursor, nil
+}
+
+// messageInfoFrom 把 tg.Message 转成 MessageInfo（含 media 提取）。
+// 从 FetchMessages 循环体提取，供 FetchMessages / SearchMessages / FetchMessageAround 复用。
+func messageInfoFrom(m *tg.Message) *MessageInfo {
+	media, hasMedia := tmedia.GetMedia(m)
+	info := &MessageInfo{
+		ID:       m.ID,
+		Date:     m.Date,
+		Text:     m.Message,
+		Views:    m.Views,
+		Forwards: m.Forwards,
+		Out:      m.Out,
+		HasMedia: hasMedia,
+	}
+	if gid, ok := m.GetGroupedID(); ok {
+		info.GroupedID = gid
+	}
+	if hasMedia {
+		mm := &MessageMedia{Name: media.Name, Size: media.Size, DC: media.DC}
+		mm.Width, mm.Height = mediaDimensions(m)
+		mm.Mime = mediaMime(m)
+		mm.Thumb = extractThumb(m)
+		if st := tmedia.GetStrippedThumb(m); st != nil {
+			mm.Stripped = &StrippedThumb{DataURI: st.DataURI, W: st.W, H: st.H}
+		}
+		info.Media = mm
+	}
+	return info
 }
 
 // mediaDimensions extracts the width/height of a message's media (video or
