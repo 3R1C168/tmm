@@ -60,6 +60,11 @@ type Options struct {
 	// OnDone; call FinalizeElem for that (the terminal UI does).
 	Progress downloader.Progress
 
+	// PauseCheck, when non-nil, is invoked before each chunk write of a file.
+	// A non-nil error aborts that file's download. A service backend uses it
+	// for per-file pause. Nil = no check (CLI behavior unchanged).
+	PauseCheck func(elem downloader.Elem) error
+
 	// IterHook, when non-nil, is invoked right before the download starts with
 	// the iterator (see Iter). A service backend uses it to read the resume
 	// fingerprint, track finished messages, and persist progress. It is not
@@ -204,10 +209,11 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 	}
 
 	options := downloader.Options{
-		Pool:     pool,
-		Threads:  rt.Threads,
-		Iter:     it,
-		Progress: progress,
+		Pool:       pool,
+		Threads:    rt.Threads,
+		Iter:       it,
+		Progress:   progress,
+		PauseCheck: opts.PauseCheck,
 	}
 	limit := rt.Limit
 
