@@ -23,7 +23,7 @@
                 <LazyThumb :src="api.mediaThumbUrl(discussionGroupId, c.id)" :placeholder="c.media?.stripped?.dataUri || ''" />
               </div>
               <div v-if="c.reactions && c.reactions.length" class="cm-reactions">
-                <span v-for="(rc, i) in c.reactions" :key="i" class="cm-reaction">{{ rc.emoji }} {{ rc.count }}</span>
+                <ReactionBadge v-for="(rc, i) in c.reactions" :key="i" :emoji="rc.emoji" :count="rc.count" />
               </div>
             </div>
           </div>
@@ -45,6 +45,7 @@ import { ref, onMounted } from 'vue'
 import { MessageCircle, X } from 'lucide-vue-next'
 import { api } from '../api'
 import LazyThumb from './LazyThumb.vue'
+import ReactionBadge from './ReactionBadge.vue'
 
 const props = defineProps({
   chatId: { type: String, required: true },             // 帖子所在频道 ID（getReplies 的 peer）
@@ -173,8 +174,7 @@ onMounted(async () => {
 .cm-text { margin-top: 4px; font-size: 13px; color: var(--text-2); word-break: break-word; white-space: pre-wrap; }
 .cm-media { margin-top: 6px; }
 .cm-media .lazy-thumb { width: 200px; height: 130px; border-radius: var(--radius-sm); }
-.cm-reactions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
-.cm-reaction { font-size: 12px; color: var(--text-2); background: var(--bg-hover); border-radius: 999px; padding: 2px 8px; }
+.cm-reactions { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .cm-loadmore, .cm-end { text-align: center; padding: 10px 0 4px; font-size: 12px; color: var(--text-3); }
 .cm-loadmore-error { color: var(--red); }
 </style>

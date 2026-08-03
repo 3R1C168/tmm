@@ -213,7 +213,7 @@
                     </div>
                     <div class="meta">
                       <span v-if="item.msg.views" class="meta-views"><Eye :size="11" /> {{ item.msg.views }}</span>
-                      <span v-for="(rc, i) in item.msg.reactions" :key="i" class="meta-views">{{ rc.emoji }} {{ rc.count }}</span>
+                      <ReactionBadge v-for="(rc, i) in item.msg.reactions" :key="i" :emoji="rc.emoji" :count="rc.count" />
                       <span
                         v-if="item.msg.replies && item.msg.replies.count > 0 && item.msg.replies.channelId"
                         class="meta-views meta-comments"
@@ -335,6 +335,7 @@ import MediaViewer from '../components/MediaViewer.vue'
 import LazyThumb from '../components/LazyThumb.vue'
 import TelegraphReader from '../components/TelegraphReader.vue'
 import CommentsPanel from '../components/CommentsPanel.vue'
+import ReactionBadge from '../components/ReactionBadge.vue'
 import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink, MessageCircle } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
 
