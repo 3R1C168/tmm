@@ -204,6 +204,15 @@
                     </div>
                     <div class="meta">
                       <span v-if="item.msg.views" class="meta-views"><Eye :size="11" /> {{ item.msg.views }}</span>
+                      <span v-for="(rc, i) in item.msg.reactions" :key="i" class="meta-views">{{ rc.emoji }} {{ rc.count }}</span>
+                      <span
+                        v-if="item.msg.replies && item.msg.replies.count > 0 && item.msg.replies.channelId"
+                        class="meta-views meta-comments"
+                        title="查看评论区"
+                        @click.stop="openComments(item.msg)"
+                      >
+                        <MessageCircle :size="11" /> {{ item.msg.replies.count }}
+                      </span>
                       <span>{{ fmtDate(item.msg.date) }}</span>
                       <button class="media-dl-btn" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="16" /></button>
                     </div>
@@ -239,6 +248,13 @@
       :chat-id="telegraphReader.chatId"
       :msg-id="telegraphReader.msgId"
       @close="telegraphReader.show = false"
+    />
+
+    <CommentsPanel
+      v-if="commentsPanel.show"
+      :chat-id="commentsPanel.chatId"
+      :msg-id="commentsPanel.msgId"
+      @close="commentsPanel.show = false"
     />
 
     <el-dialog v-model="rangeDialog" title="按范围下载" width="520px">
@@ -308,7 +324,8 @@ import { isImage, isVideo, isAudio } from '../utils/media'
 import MediaViewer from '../components/MediaViewer.vue'
 import LazyThumb from '../components/LazyThumb.vue'
 import TelegraphReader from '../components/TelegraphReader.vue'
-import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink } from 'lucide-vue-next'
+import CommentsPanel from '../components/CommentsPanel.vue'
+import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink, MessageCircle } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
 
 const router = useRouter()
@@ -496,6 +513,13 @@ function searchSnippet(text, max = 150) {
 const viewer = ref({ show: false, index: 0 })
 // Telegraph 站内阅读弹层：点击消息卡片上的链接预览打开
 const telegraphReader = ref({ show: false, chatId: '', msgId: 0 })
+// 评论区弹层：点击消息卡片 meta 行的评论数打开（只读）
+const commentsPanel = ref({ show: false, chatId: '', msgId: 0 })
+
+function openComments(m) {
+  if (!current.value || !m.replies || !m.replies.channelId) return
+  commentsPanel.value = { show: true, chatId: String(m.replies.channelId), msgId: m.id }
+}
 const rangeDialog = ref(false)
 const rangeLoading = ref(false)
 const range = ref({ mode: 'all', count: 100, include: '', dateRange: [] })
@@ -1225,6 +1249,9 @@ function fmtDate(ts) {
 /* 浏览数：图标和文字 inline-flex 垂直居中对齐 */
 .meta-views { display: inline-flex; align-items: center; gap: 3px; }
 .meta-views svg { display: block; }
+/* 评论区入口：有评论数时可点击（hover 提示） */
+.meta-comments { cursor: pointer; }
+.meta-comments:hover { color: var(--accent); }
 
 .media-box { cursor: zoom-in; }
 .thumb-wrap { position: relative; border-radius: var(--radius); overflow: hidden; }
