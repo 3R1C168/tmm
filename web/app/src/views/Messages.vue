@@ -437,7 +437,12 @@ const unreadLastId = computed(() => {
 })
 // 是否真有未读（跳转按钮显隐 + 分隔线开关）：未读起点在已加载最新之下才成立。
 // 全已读（readInboxMaxId = 最新，如刚 markRead 后）时 readInboxMaxId+1 > 最新 → 无未读
-const hasUnread = computed(() => unreadFirstId.value > 0 && unreadLastId.value > 0 && unreadFirstId.value <= unreadLastId.value)
+// unreadCount>0 兜底：服务消息/已删除消息等 getHistory 跳过的未读，id 分界算不出，
+// 但会话列表徽标（服务器 unreadCount）显示有未读——此时按钮也应可用。
+const hasUnread = computed(() => {
+  if (current.value?.unreadCount > 0) return true
+  return unreadFirstId.value > 0 && unreadLastId.value > 0 && unreadFirstId.value <= unreadLastId.value
+})
 // --- 频道内搜索状态（独立于 messages/session，不污染现有分页/筛选） ---
 const searchOpen = ref(false)
 const searchQuery = ref('')
@@ -909,11 +914,16 @@ async function doMarkRead(maxId) {
   try {
     await api.markRead(String(current.value.id), maxId)
     current.value.readInboxMaxId = maxId // 推进本地未读分界
+    current.value.unreadCount = 0 // 本地已读徽标归零（loadChats 重取前先同步）
     refreshChatsUnread() // 刷新会话列表未读徽标
   } catch { /* 静默 */ }
 }
 
-// 标题栏「全部已读」：弹确认框防误触，确认后全读当前频道（≤最新消息 id）。
+// 标题栏「全部已读」：弹确认框防误触，确认后全读当前频道。
+// maxId 用大值（MaxInt32）而非已加载最新——服务消息/已删除消息等 getHistory
+// 跳过的未读 id 可能大于已加载最新，用小 id 清不掉（实测 markRead(MaxInt32) 清掉
+// 众乐乐的服务消息未读）。Telegram channels.readHistory 对超出范围的 MaxID 安全。
+const MARK_READ_MAX = 2147483647 // 2^31-1，足够覆盖一切消息 id
 async function markReadCurrent() {
   if (!current.value || !unreadLastId.value) return
   try {
@@ -925,7 +935,7 @@ async function markReadCurrent() {
   } catch {
     return // 用户取消
   }
-  await doMarkRead(unreadLastId.value)
+  await doMarkRead(MARK_READ_MAX)
 }
 function refreshChatsUnread() {
   // 刷新会话列表未读徽标（api.listChats(true) 或本地更新）
