@@ -7,8 +7,6 @@ import (
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/peers"
-	"github.com/gotd/td/telegram/query"
-	"github.com/gotd/td/telegram/query/messages"
 	"github.com/gotd/td/tg"
 
 	"github.com/iyear/tdl/core/storage"
@@ -80,6 +78,11 @@ func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage
 }
 
 // FetchMessageAround 按 msgid 取该消息及其往前 limit 条历史，用于跳转定位。
+//
+// 实测（2026-08-03，频道 2070986972）：messages.getHistory 的 offset_id 是排他游标
+// （返回比 offset_id 旧的），要含目标 msgID 需传 msgID+1。
+// 不用 query.NewQuery + messages.NewIterator——迭代器 batchSize=100 会覆盖 limit，
+// 且内部维护 offsetPeer/offsetDate 副作用；跳转定位只需一次性原始 RPC。
 func FetchMessageAround(ctx context.Context, c *telegram.Client, kvd storage.Storage,
 	chatID string, msgID, limit int) ([]*MessageInfo, error) {
 
@@ -93,20 +96,27 @@ func FetchMessageAround(ctx context.Context, c *telegram.Client, kvd storage.Sto
 		limit = 50
 	}
 
-	// messages.getHistory offset=msgID 往回取，含 msgID 本身
-	q := query.NewQuery(c.API()).Messages().GetHistory(peer.InputPeer()).OffsetID(msgID)
-	iter := messages.NewIterator(q, 100)
-
-	out := make([]*MessageInfo, 0, limit)
-	for iter.Next(ctx) && len(out) < limit {
-		elem := iter.Value()
-		applyEntities(ctx, manager, elem.Entities)
-		if m, ok := elem.Msg.(*tg.Message); ok {
-			out = append(out, messageInfoFrom(m))
-		}
+	res, err := c.API().MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+		Peer:     peer.InputPeer(),
+		OffsetID: msgID + 1, // 排他游标：offset=X 返回比 X 旧的，+1 含目标 msgID
+		Limit:    limit,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "fetch history around")
 	}
-	if err := iter.Err(); err != nil {
-		return nil, errors.Wrap(err, "fetch around")
+
+	ch, ok := res.(*tg.MessagesChannelMessages)
+	if !ok {
+		return nil, errors.Errorf("unexpected history result type %T", res)
+	}
+
+	out := make([]*MessageInfo, 0, len(ch.Messages))
+	for _, mc := range ch.Messages {
+		m, ok := mc.(*tg.Message)
+		if !ok {
+			continue
+		}
+		out = append(out, messageInfoFrom(m))
 	}
 	return out, nil
 }
