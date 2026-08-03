@@ -239,9 +239,12 @@
                         </div>
                       </div>
                     </div>
+                    <!-- 反应网格（仿桌面端）：独立行 flex-wrap，emoji 多时换行，不挤占日期行 -->
+                    <div v-if="item.msg.reactions?.length" class="meta-reactions">
+                      <ReactionBadge v-for="(rc, i) in item.msg.reactions" :key="i" :emoji="rc.emoji" :count="rc.count" />
+                    </div>
                     <div class="meta">
                       <span v-if="item.msg.views" class="meta-views"><Eye :size="11" /> {{ item.msg.views }}</span>
-                      <ReactionBadge v-for="(rc, i) in item.msg.reactions" :key="i" :emoji="rc.emoji" :count="rc.count" />
                       <span
                         v-if="item.msg.replies && item.msg.replies.count > 0 && item.msg.replies.channelId"
                         class="meta-views meta-comments"
@@ -1486,6 +1489,9 @@ function fmtDate(ts) {
   line-height: 1.3125;
 }
 .bubble .meta { display: flex; justify-content: flex-start; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); margin-top: 3px; user-select: none; }
+/* 反应网格（仿桌面端）：独立行 flex-wrap，emoji 多时换行不溢出；与 meta（日期行）隔开 */
+.bubble .meta-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.bubble .meta-reactions .reaction-badge { padding: 1px 5px; background: var(--bg-hover); border-radius: var(--radius-sm); }
 /* 浏览数：图标和文字 inline-flex 垂直居中对齐 */
 .meta-views { display: inline-flex; align-items: center; gap: 3px; }
 .meta-views svg { display: block; }
