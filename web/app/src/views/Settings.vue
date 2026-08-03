@@ -56,17 +56,6 @@
     </div>
 
     <div class="card">
-      <h3 class="sec">已读同步</h3>
-      <div class="setrow">
-        <div class="setinfo">
-          <div class="setname">自动已读</div>
-          <div class="setdesc muted">进入频道定位未读后，跳到未读末尾自动标记已读（仿桌面端）。关闭后进入频道只定位不标记，可手动点「标记已读」。</div>
-        </div>
-        <el-switch v-model="settings.autoRead" @change="saveSettings" />
-      </div>
-    </div>
-
-    <div class="card">
       <h3 class="sec">下载设置</h3>
       <div class="setrow">
         <div class="setinfo">
@@ -132,7 +121,7 @@ import { Plus } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
-const settings = ref({ previewTakeout: false, cacheMaxMB: 5120, clearPreviewOnExit: true, autoRead: true, msgIdPrefix: false, channelIdPrefix: false, channelDir: false, downloadDir: '', filenameMaxLen: 200 })
+const settings = ref({ previewTakeout: false, cacheMaxMB: 5120, clearPreviewOnExit: true, msgIdPrefix: false, channelIdPrefix: false, channelDir: false, downloadDir: '', filenameMaxLen: 200 })
 
 onMounted(async () => {
   try {
@@ -141,7 +130,6 @@ onMounted(async () => {
       previewTakeout: !!s.previewTakeout,
       cacheMaxMB: s.cacheMaxMB || 5120,
       clearPreviewOnExit: s.clearPreviewOnExit !== false,
-      autoRead: s.autoRead !== false,
       msgIdPrefix: s.msgIdPrefix === true,
       channelIdPrefix: s.channelIdPrefix === true,
       channelDir: s.channelDir === true,
@@ -157,7 +145,6 @@ async function saveSettings() {
       previewTakeout: settings.value.previewTakeout,
       cacheMaxMB: settings.value.cacheMaxMB,
       clearPreviewOnExit: settings.value.clearPreviewOnExit,
-      autoRead: settings.value.autoRead,
       msgIdPrefix: settings.value.msgIdPrefix,
       channelIdPrefix: settings.value.channelIdPrefix,
       channelDir: settings.value.channelDir,
