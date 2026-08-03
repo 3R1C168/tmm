@@ -29,7 +29,8 @@
           </div>
           <div v-if="hasMore" class="cm-loadmore">
             <el-button size="small" text :loading="loadingMore" @click="loadMore">
-              {{ loadingMore ? '加载中…' : '加载更多评论' }}
+              <span v-if="loadMoreError" class="cm-loadmore-error">{{ loadMoreError }}，点击重试</span>
+              <template v-else>{{ loadingMore ? '加载中…' : '加载更多评论' }}</template>
             </el-button>
           </div>
           <div v-else-if="comments.length" class="cm-end">已到底</div>
@@ -40,7 +41,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted } from 'vue'
 import { MessageCircle, X } from 'lucide-vue-next'
 import { api } from '../api'
 import LazyThumb from './LazyThumb.vue'
@@ -58,6 +59,9 @@ const comments = ref([])
 const nextCursor = ref(0)
 const hasMore = ref(true)
 const loadingMore = ref(false)
+// 分页加载失败的内联错误：只提示 + 允许重试，不清空已加载的评论列表。
+// 首屏加载失败走 error.value（整屏错误态），与此独立。
+const loadMoreError = ref('')
 
 async function loadPage(offsetId) {
   try {
@@ -71,13 +75,14 @@ async function loadPage(offsetId) {
 async function loadMore() {
   if (!hasMore.value || loadingMore.value) return
   loadingMore.value = true
+  loadMoreError.value = ''
   try {
     const res = await loadPage(nextCursor.value)
     comments.value.push(...res.comments)
     nextCursor.value = res.nextCursor
     hasMore.value = res.nextCursor > 0
   } catch (e) {
-    error.value = e.message
+    loadMoreError.value = e.message
   } finally {
     loadingMore.value = false
   }
@@ -116,8 +121,6 @@ onMounted(async () => {
     loading.value = false
   }
 })
-
-onBeforeUnmount(() => {})
 </script>
 
 <style scoped>
@@ -172,4 +175,5 @@ onBeforeUnmount(() => {})
 .cm-reactions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 .cm-reaction { font-size: 12px; color: var(--text-2); background: var(--bg-hover); border-radius: 999px; padding: 2px 8px; }
 .cm-loadmore, .cm-end { text-align: center; padding: 10px 0 4px; font-size: 12px; color: var(--text-3); }
+.cm-loadmore-error { color: var(--red); }
 </style>
