@@ -125,43 +125,47 @@
                     :model-value="item.msgs.every((x) => selected.has(x.id))"
                     @change="toggleSelectAlbum(item)"
                   />
-                  <div class="bubble album" :style="{ width: (albumLayout(item).width + 8) + 'px' }">
-                    <!-- 拼图布局（照 telegram-tt）：按宽高比拼，不裁正方形 -->
-                    <div class="album-mosaic" :style="{ width: albumLayout(item).width + 'px', height: albumLayout(item).height + 'px' }">
-                      <div
-                        v-for="(m, ci) in item.msgs"
-                        :key="m.id"
-                        class="album-cell"
-                        :style="albumCellStyle(item, ci)"
-                        @click="openViewer(m)"
-                      >
-                        <LazyThumb :src="api.mediaThumbUrl(current.id, m.id)" :placeholder="m.media?.stripped?.dataUri || ''" @load="onThumbLoad(m, $event)" @error="onThumbError" />
-                        <span v-if="isVideo(m.media)" class="cell-play"><Play :size="32" /></span>
-                        <span v-if="m.media?.size" class="cell-dur">{{ fmtBytes(m.media.size) }}</span>
+                  <div class="bubble-wrap">
+                    <div class="bubble album" :style="{ width: (albumLayout(item).width + 8) + 'px' }">
+                      <!-- 拼图布局（照 telegram-tt）：按宽高比拼，不裁正方形 -->
+                      <div class="album-mosaic" :style="{ width: albumLayout(item).width + 'px', height: albumLayout(item).height + 'px' }">
+                        <div
+                          v-for="(m, ci) in item.msgs"
+                          :key="m.id"
+                          class="album-cell"
+                          :style="albumCellStyle(item, ci)"
+                          @click="openViewer(m)"
+                        >
+                          <LazyThumb :src="api.mediaThumbUrl(current.id, m.id)" :placeholder="m.media?.stripped?.dataUri || ''" @load="onThumbLoad(m, $event)" @error="onThumbError" />
+                          <span v-if="isVideo(m.media)" class="cell-play"><Play :size="32" /></span>
+                          <span v-if="m.media?.size" class="cell-dur">{{ fmtBytes(m.media.size) }}</span>
+                        </div>
+                      </div>
+                      <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
+                      <div v-if="albumText(item)" class="text">{{ albumText(item) }}</div>
+                      <div class="meta">
+                        <span v-if="item.views" class="meta-views"><Eye :size="11" /> {{ item.views }}</span>
+                        <!-- 相册评论入口：组内第一条带评论区的消息（同组讨论组相同） -->
+                        <span
+                          v-if="albumComments(item)"
+                          class="meta-views meta-comments"
+                          title="查看评论区"
+                          @click.stop="openComments(albumComments(item))"
+                        >
+                          <MessageCircle :size="11" /> {{ albumComments(item).replies.count }}
+                        </span>
+                        <span>{{ fmtDate(item.date) }}</span>
                       </div>
                     </div>
-                    <!-- 相册文字（caption 挂在组内某一条上，取第一个非空的） -->
-                    <div v-if="albumText(item)" class="text">{{ albumText(item) }}</div>
-                    <div class="meta">
-                      <span v-if="item.views" class="meta-views"><Eye :size="11" /> {{ item.views }}</span>
-                      <!-- 相册评论入口：组内第一条带评论区的消息（同组讨论组相同） -->
-                      <span
-                        v-if="albumComments(item)"
-                        class="meta-views meta-comments"
-                        title="查看评论区"
-                        @click.stop="openComments(albumComments(item))"
-                      >
-                        <MessageCircle :size="11" /> {{ albumComments(item).replies.count }}
-                      </span>
-                      <span>{{ fmtDate(item.date) }}</span>
-                      <button class="media-dl-btn" @click.stop="downloadAlbum(item)" title="下载整组({{ item.msgs.length }})"><Download :size="16" /></button>
-                    </div>
+                    <!-- 下载按钮：气泡外右下角悬浮（meta 行只留信息） -->
+                    <button class="media-dl-float" @click.stop="downloadAlbum(item)" title="下载整组({{ item.msgs.length }})"><Download :size="16" /></button>
                   </div>
                 </div>
 
                 <!-- 单条消息 -->
                 <div v-else class="msg" :class="{ out: item.msg.out, selected: selected.has(item.msg.id) }">
                   <el-checkbox class="pick" :model-value="selected.has(item.msg.id)" @change="toggleSelect(item.msg.id)" />
+                  <div class="bubble-wrap">
                   <div class="bubble" :class="{ media: item.msg.hasMedia }" :style="item.msg.hasMedia && (isImage(item.msg.media) || isVideo(item.msg.media)) ? { width: (mediaWidth(item.msg) + 8) + 'px' } : {}">
                     <div v-if="item.msg.hasMedia" class="media-box" @click="openViewer(item.msg)">
                       <template v-if="isImage(item.msg.media) || isVideo(item.msg.media)">
@@ -223,8 +227,10 @@
                         <MessageCircle :size="11" /> {{ item.msg.replies.count }}
                       </span>
                       <span>{{ fmtDate(item.msg.date) }}</span>
-                      <button class="media-dl-btn" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="16" /></button>
                     </div>
+                  </div>
+                  <!-- 下载按钮：气泡外右下角悬浮（meta 行只留信息） -->
+                  <button class="media-dl-float" :disabled="!item.msg.hasMedia" @click.stop="downloadSingle(item.msg)" :title="item.msg.hasMedia ? '下载媒体' : '无媒体'"><Download :size="16" /></button>
                   </div>
                 </div>
               </div>
@@ -1230,6 +1236,28 @@ function fmtDate(ts) {
 .msg.out { flex-direction: row-reverse; margin-left: auto; }
 .msg .pick { flex: none; margin-top: 10px; }
 .msg.selected .bubble { outline: 2px solid var(--accent); }
+
+/* 下载按钮悬浮在气泡外右下角：wrap 内容定宽 + relative，按钮 absolute 定位其右下。
+   气泡本身有 overflow:hidden（圆角裁图），按钮必须放 wrap 层才能露在气泡外。 */
+.bubble-wrap { position: relative; width: max-content; max-width: 100%; }
+/* 悬浮下载按钮：气泡右下角外侧，白底圆钮 hover 显蓝。有媒体才显示（纯文本消息无下载） */
+.media-dl-float {
+  position: absolute;
+  right: -12px;
+  bottom: -12px;
+  width: 34px; height: 34px;
+  border: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-panel);
+  color: var(--text-3);
+  box-shadow: 0 1px 4px rgba(0,0,0,.25);
+  cursor: pointer;
+  transition: .15s;
+  z-index: 3;
+  padding: 0;
+}
+.media-dl-float:hover:not(:disabled) { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(79,124,255,.4); }
+.media-dl-float:disabled { display: none; }
 
 /* 气泡：内容宽度，CSS max-width 封顶（tt: 29rem = 464px） */
 .bubble {
