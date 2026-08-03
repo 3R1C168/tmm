@@ -109,7 +109,8 @@ async function markReadCurrent() {
    - 「只看媒体」点击高亮 + 只显示媒体消息
    - 右下角按钮跳最后一条消息；「加载更早」底部悬浮
    - 分隔线「以上是未读消息」；设置页卡片居中、无「已读同步」卡片；卡片阴影更深
-2. **分组/归档只读显示**（会话 3 早）：`docs/superpowers/specs/2026-08-03-folders-archive-design.md` 已写好，**未实施**
+2. **✅ 已修：全部已读按钮 + 服务消息未读**（`5f0fbe55`）：`hasUnread` 加 `unreadCount>0` 兜底 + `markReadCurrent` 用 `MARK_READ_MAX`(2147483647) 全读——覆盖 getHistory 跳过的服务消息未读（如众乐乐 1 条未读，实测 markRead(MaxInt32) 后 unreadCount 0→ readInboxMaxId 3249）。逻辑模拟 4 场景全对。
+3. **分组/归档只读显示**（会话 3 早）：`docs/superpowers/specs/2026-08-03-folders-archive-design.md` 已写好，**未实施**
 3. **作者头像 / 发评论 / 相册反应**：评论区 v2 候选
 4. **下载历史/去重提醒**：记录已下载 (频道, msgID)，新建任务时提醒——未做
 5. **22713-22717 bug 根因**：加过诊断日志，用户称修好但根因未确认——未深究
