@@ -154,8 +154,40 @@ function fmtTime(sec) {
 }
 .gp-progress {
   flex: 1;
-  height: 4px;
+  height: 4px; /* 静态小高度：固定 track 4px，不随 hover/聚焦变化 */
   accent-color: var(--accent, #4f7cff);
+  cursor: pointer;
+  appearance: none; /* 去掉浏览器原生 range 样式（原生 track 高度/thumb 会随状态动态变化） */
+  -webkit-appearance: none;
+  background: transparent;
+}
+/* 固定 track：静态 4px 高，圆角 */
+.gp-progress::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-hover, #e7e9ed);
+}
+/* 小 thumb：14px 圆点，居中于 track，hover 不大 */
+.gp-progress::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent, #4f7cff);
+  border: 2px solid var(--bg-panel, #f3f4f7);
+  margin-top: -5px; /* 居中于 4px track：(14-4)/2 */
+  cursor: pointer;
+}
+/* Firefox */
+.gp-progress::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-hover, #e7e9ed);
+}
+.gp-progress::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent, #4f7cff);
+  border: 2px solid var(--bg-panel, #f3f4f7);
   cursor: pointer;
 }
 .gp-progress:disabled { opacity: .4; cursor: default; }
