@@ -3,7 +3,10 @@
     <!-- 左侧：会话列表（宽度可拖动调整） -->
     <aside class="chat-list" :style="{ width: chatListW + 'px' }">
       <div class="chat-search">
-        <input v-model="search" placeholder="搜索会话…" />
+        <div class="chat-search-input-wrap">
+          <input v-model="search" placeholder="搜索会话…" />
+          <button v-if="search" class="search-clear" @click="clearChatSearch" title="清除搜索">✕</button>
+        </div>
         <button class="chat-refresh-btn" :disabled="chatsLoading" @click="loadChats(true)" title="刷新会话列表">
           <RefreshCw v-if="!chatsLoading" :size="15" />
           <Loader2 v-else :size="15" class="spin" />
@@ -181,6 +184,24 @@
                       </template>
                     </div>
                     <div v-if="item.msg.text" class="text">{{ item.msg.text }}</div>
+                    <!-- 链接预览卡片（Telegram 随消息附带的 web-page 预览，如 Telegraph 链接） -->
+                    <div
+                      v-if="item.msg.linkPreview"
+                      class="link-preview"
+                      @click.stop="openTelegraph(item.msg)"
+                    >
+                      <div v-if="item.msg.linkPreview.hasPhoto" class="lp-thumb">
+                        <LazyThumb :src="api.mediaThumbUrl(current.id, item.msg.id)" placeholder="" />
+                      </div>
+                      <div class="lp-body">
+                        <div class="lp-title">{{ item.msg.linkPreview.title || item.msg.linkPreview.url }}</div>
+                        <div v-if="item.msg.linkPreview.desc" class="lp-desc">{{ item.msg.linkPreview.desc }}</div>
+                        <div class="lp-site">
+                          <ExternalLink :size="11" />
+                          {{ item.msg.linkPreview.site || siteFromUrl(item.msg.linkPreview.url) }}
+                        </div>
+                      </div>
+                    </div>
                     <div class="meta">
                       <span v-if="item.msg.views" class="meta-views"><Eye :size="11" /> {{ item.msg.views }}</span>
                       <span>{{ fmtDate(item.msg.date) }}</span>
@@ -211,6 +232,13 @@
       :start-index="viewer.index"
       :chat-id="current ? current.id : ''"
       @download="downloadSingle"
+    />
+
+    <TelegraphReader
+      v-if="telegraphReader.show"
+      :chat-id="telegraphReader.chatId"
+      :msg-id="telegraphReader.msgId"
+      @close="telegraphReader.show = false"
     />
 
     <el-dialog v-model="rangeDialog" title="按范围下载" width="520px">
@@ -279,7 +307,8 @@ import { fmtBytes } from '../utils/format'
 import { isImage, isVideo, isAudio } from '../utils/media'
 import MediaViewer from '../components/MediaViewer.vue'
 import LazyThumb from '../components/LazyThumb.vue'
-import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp } from 'lucide-vue-next'
+import TelegraphReader from '../components/TelegraphReader.vue'
+import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
 
 const router = useRouter()
@@ -403,6 +432,10 @@ function clearSearch() {
   searchResults.value = []
   searchHasMore.value = false
 }
+// 清除左侧会话搜索框内容（✕ 按钮）
+function clearChatSearch() {
+  search.value = ''
+}
 // 点击搜索框/下拉以外区域关闭下拉（document 级 mousedown，仿 Tasks.vue onDocClick 模式）。
 // 下拉本身也视为搜索组件的一部分：点滚动条/空白处不清，点结果项由 jumpToResult 关闭。
 function onDocMouseDown(e) {
@@ -461,6 +494,8 @@ function searchSnippet(text, max = 150) {
 }
 
 const viewer = ref({ show: false, index: 0 })
+// Telegraph 站内阅读弹层：点击消息卡片上的链接预览打开
+const telegraphReader = ref({ show: false, chatId: '', msgId: 0 })
 const rangeDialog = ref(false)
 const rangeLoading = ref(false)
 const range = ref({ mode: 'all', count: 100, include: '', dateRange: [] })
@@ -850,6 +885,26 @@ function openViewer(m) {
   viewer.value = { show: true, index: Math.max(0, idx) }
 }
 
+// 点击消息卡片上的链接预览：Telegraph 链接站内阅读，其余在新标签打开
+function openTelegraph(m) {
+  if (!current.value || !m.linkPreview) return
+  if (isTelegraphUrl(m.linkPreview.url)) {
+    telegraphReader.value = { show: true, chatId: String(current.value.id), msgId: m.id }
+  } else {
+    window.open(m.linkPreview.url, '_blank', 'noopener')
+  }
+}
+
+// 判断链接是否是 telegra.ph（决定站内阅读还是跳外链）
+function isTelegraphUrl(u) {
+  try { return new URL(u).hostname.replace(/^www\./, '') === 'telegra.ph' } catch { return false }
+}
+
+// 从链接里取站点名（预览缺 site 字段时的兜底显示）
+function siteFromUrl(u) {
+  try { return new URL(u).hostname } catch { return u || '' }
+}
+
 // 点击音频 chip：交给全局底部播放器（单实例互斥，滚动/切频道不断播）
 function playAudio(m) {
   if (!current.value) return
@@ -1022,7 +1077,9 @@ function fmtDate(ts) {
 .chat-resizer { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 5; }
 .chat-resizer:hover, .chat-resizer:active { background: var(--accent); opacity: .3; }
 .chat-search { padding: 10px 12px; display: flex; align-items: center; gap: 6px; }
-.chat-search input { flex: 1; min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 12px; outline: none; font-size: 13px; }
+/* 会话搜索框：input 外包一层定位容器，容纳右侧 ✕ 清除按钮 */
+.chat-search-input-wrap { flex: 1; min-width: 0; position: relative; }
+.chat-search input { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); padding: 0 28px 0 12px; outline: none; font-size: 13px; }
 .chat-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .chat-refresh-btn { flex: none; width: 32px; height: 32px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .chat-refresh-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
@@ -1179,6 +1236,22 @@ function fmtDate(ts) {
 .media-dl-btn { width: 30px; height: 30px; flex: none; margin-left: auto; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-3); cursor: pointer; transition: .15s; padding: 0; }
 .media-dl-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
 .media-dl-btn:disabled { opacity: .35; cursor: default; }
+
+/* 链接预览卡片（web-page preview，如 Telegraph 链接）：横向配图 + 右侧标题/描述/站点 */
+.link-preview {
+  display: flex; gap: 12px; align-items: stretch;
+  margin-top: 8px; max-width: 360px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; cursor: pointer; background: var(--bg);
+  transition: .15s;
+}
+.link-preview:hover { border-color: var(--accent); }
+.lp-thumb { flex: none; width: 96px; min-height: 64px; background: var(--bg-hover); }
+.lp-thumb .lazy-thumb { width: 96px; height: 100%; }
+.lp-body { flex: 1; min-width: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
+.lp-title { font-weight: 600; font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lp-desc { font-size: 12px; color: var(--text-2); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lp-site { margin-top: auto; font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 4px; }
 
 /* 文件卡片：内容宽度 */
 .file-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); max-width: 100%; box-sizing: border-box; }

@@ -283,6 +283,11 @@ func (s *Server) router() *mux.Router {
 	api.HandleFunc("/media/{id}/{msg}/file", s.handleMediaFile).Methods(http.MethodGet)
 	api.HandleFunc("/media/{id}/{msg}/stream", s.handleMediaStream).Methods(http.MethodGet)
 
+	// telegraph: in-app article reading + image download (消息内嵌 Telegraph 链接)
+	api.HandleFunc("/telegraph/{id}/{msg}/read", s.handleTelegraphRead).Methods(http.MethodGet)
+	api.HandleFunc("/telegraph/{id}/{msg}/download", s.handleTelegraphDownload).Methods(http.MethodPost)
+	api.HandleFunc("/telegraph/img", s.handleTelegraphImg).Methods(http.MethodGet)
+
 	// filesystem helpers (native dir picker + tdata detection)
 	api.HandleFunc("/fs/pick-folder", s.handlePickFolder).Methods(http.MethodPost)
 	api.HandleFunc("/fs/detect-tdata", s.handleDetectTdata).Methods(http.MethodGet)

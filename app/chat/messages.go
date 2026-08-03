@@ -61,6 +61,21 @@ type MessageInfo struct {
 	Out       bool          `json:"out"` // sent by the logged-in account
 	HasMedia  bool          `json:"hasMedia"`
 	Media     *MessageMedia `json:"media,omitempty"`
+	// LinkPreview is the inline web-page preview Telegram attached to the
+	// message (e.g. a Telegraph link). Unlike Media it is not a downloadable
+	// attachment; the browser renders it as a card.
+	LinkPreview *LinkPreview `json:"linkPreview,omitempty"`
+}
+
+// LinkPreview is a message's inline web-page preview, carried free by Telegram
+// as MessageMediaWebPage. The preview image (if any) is fetched through the
+// normal /media/{id}/{msg}/thumb endpoint (resolveThumb handles WebPage).
+type LinkPreview struct {
+	Title   string `json:"title,omitempty"`
+	Desc    string `json:"desc,omitempty"`
+	Site    string `json:"site,omitempty"` // site name, e.g. "telegra.ph"
+	URL     string `json:"url"`
+	HasPhoto bool  `json:"hasPhoto"` // preview carries a photo (via /media thumb)
 }
 
 // FetchMessages pages a chat's history (newest first). offsetID is the cursor:
@@ -145,6 +160,9 @@ func messageInfoFrom(m *tg.Message) *MessageInfo {
 	}
 	if gid, ok := m.GetGroupedID(); ok {
 		info.GroupedID = gid
+	}
+	if lp := linkPreviewFromMessage(m); lp != nil {
+		info.LinkPreview = lp
 	}
 	if hasMedia {
 		mm := &MessageMedia{Name: media.Name, Size: media.Size, DC: media.DC}
@@ -256,4 +274,34 @@ func applyEntities(ctx context.Context, manager *peers.Manager, ent peer.Entitie
 	if len(users)+len(chats) > 0 {
 		_ = manager.Apply(ctx, users, chats)
 	}
+}
+
+// linkPreviewFromMessage extracts Telegram's inline web-page preview (attached
+// as MessageMediaWebPage when the message contains a link, e.g. a Telegraph
+// article) into a LinkPreview. Returns nil when the message has no preview.
+// The preview photo is not serialized here — the browser fetches it via the
+// /media/{id}/{msg}/thumb endpoint, whose resolveThumb handles WebPage photos.
+func linkPreviewFromMessage(m *tg.Message) *LinkPreview {
+	md, ok := m.GetMedia()
+	if !ok {
+		return nil
+	}
+	wp, ok := md.(*tg.MessageMediaWebPage)
+	if !ok {
+		return nil
+	}
+	w, ok := wp.Webpage.(*tg.WebPage)
+	if !ok {
+		return nil
+	}
+	lp := &LinkPreview{
+		Title: w.Title,
+		Desc:  w.Description,
+		Site:  w.SiteName,
+		URL:   w.URL,
+	}
+	if _, ok := w.Photo.(*tg.Photo); ok {
+		lp.HasPhoto = true
+	}
+	return lp
 }

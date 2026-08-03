@@ -33,8 +33,20 @@ func cacheRoot() string {
 	return filepath.Join(filepath.Dir(exe), "cache")
 }
 
-// settingsPath locates settings.json next to the exe.
+// settingsPath locates settings.json inside the data directory (next to the
+// exe's data/ folder), alongside the account session databases.
 func settingsPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "settings.json"
+	}
+	return filepath.Join(filepath.Dir(exe), "data", "settings.json")
+}
+
+// legacySettingsPath is the pre-2026-08-03 location of settings.json (next to
+// the exe, not in data/). Kept so the new location can migrate existing
+// settings once on first run instead of losing them.
+func legacySettingsPath() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return "settings.json"

@@ -47,6 +47,10 @@ type settings struct {
 	DownloadDir string `json:"downloadDir"`
 
 	path string `json:"-"`
+
+	// legacyPath is the pre-2026-08-03 settings location (next to the exe).
+	// load() migrates an existing file from here to path once.
+	legacyPath string `json:"-"`
 }
 
 // settingsJSON 是 load 时的辅助结构：可空字段用指针，区分"未设置=用默认"
@@ -75,10 +79,18 @@ func defaultSettings(path string) *settings {
 		ChannelDir:         false,
 		DownloadDir:        "",
 		path:               path,
+		legacyPath:         legacySettingsPath(),
 	}
 }
 
 func (st *settings) load() error {
+	// 迁移旧位置（exe 旁的 settings.json）到 data/settings.json：新路径不存在
+	// 且旧路径存在时移动一次，保留用户已有设置。data/ 目录由 consts 保证存在。
+	if !fileExists(st.path) && fileExists(st.legacyPath) {
+		if err := os.Rename(st.legacyPath, st.path); err == nil {
+			// 移动成功即可；失败则走下面的默认值逻辑，不阻塞启动
+		}
+	}
 	b, err := os.ReadFile(st.path)
 	if err != nil {
 		return nil // missing file -> defaults
@@ -260,4 +272,10 @@ func (s *Server) downloadDirEffective() string {
 		return d
 	}
 	return s.defaultDir
+}
+
+// fileExists reports whether path exists and is not a directory.
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }

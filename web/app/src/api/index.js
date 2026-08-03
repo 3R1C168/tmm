@@ -59,6 +59,11 @@ export const api = {
   mediaFileUrl: (chatId, msgId) => `${BASE}/api/media/${chatId}/${msgId}/file`,
   mediaStreamUrl: (chatId, msgId) => `${BASE}/api/media/${chatId}/${msgId}/stream`,
 
+  // telegraph (消息内嵌 Telegraph 链接：阅读 + 图片下载)
+  telegraphRead: (chatId, msgId) => req('GET', `/api/telegraph/${chatId}/${msgId}/read`),
+  telegraphDownload: (chatId, msgId) => req('POST', `/api/telegraph/${chatId}/${msgId}/download`),
+  telegraphImgUrl: (url) => `${BASE}/api/telegraph/img?url=${encodeURIComponent(url)}`,
+
   // settings
   getSettings: () => req('GET', '/api/settings'),
   updateSettings: (payload) => req('POST', '/api/settings', payload),

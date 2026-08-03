@@ -156,6 +156,16 @@ func resolveThumb(msg *tg.Message) (*thumbTarget, bool) {
 				return &thumbTarget{loc: th.InputFileLoc, size: th.Size, dc: th.DC}, true
 			}
 		}
+	case *tg.MessageMediaWebPage:
+		// web-page preview (e.g. Telegraph link): the preview photo is stored
+		// as a regular Telegram photo, fetchable through the same pipeline.
+		if wp, ok := mm.Webpage.(*tg.WebPage); ok {
+			if p, ok := wp.Photo.(*tg.Photo); ok {
+				if mi, ok := tmedia.GetPhotoInfo(&tg.MessageMediaPhoto{Photo: p}); ok {
+					return &thumbTarget{loc: mi.InputFileLoc, size: mi.Size, dc: mi.DC}, true
+				}
+			}
+		}
 	}
 	return nil, false
 }

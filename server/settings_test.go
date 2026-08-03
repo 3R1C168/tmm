@@ -59,6 +59,32 @@ func TestSettings_UpdateDownloadDir_Set(t *testing.T) {
 	require.Equal(t, `E:\dl\new`, st.downloadDir())
 }
 
+// 旧位置（exe 旁 settings.json）→ 新位置（data/settings.json）迁移：
+// 新路径不存在且旧路径存在时，load 应把旧文件移过去并读取其设置。
+func TestSettings_MigrateFromLegacyPath(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "settings.json") // 旧路径 = exe 旁
+	newPath := filepath.Join(dir, "data", "settings.json")
+
+	write := `{"msgIdPrefix":true,"channelIdPrefix":true,"downloadDir":"D:\\dl\\x"}`
+	require.NoError(t, os.MkdirAll(filepath.Dir(newPath), 0o755))
+	require.NoError(t, os.WriteFile(legacy, []byte(write), 0o644))
+
+	st := defaultSettings(newPath)
+	st.legacyPath = legacy // 测试里固定 legacy 路径（绕过 os.Executable）
+	require.NoError(t, st.load())
+
+	// 旧文件被移动走，新路径读取到原设置
+	_, err := os.Stat(legacy)
+	require.True(t, os.IsNotExist(err), "旧 settings.json 应被移走")
+	b, err := os.ReadFile(newPath)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"msgIdPrefix":true`)
+	require.True(t, st.msgIdPrefix())
+	require.True(t, st.channelIdPrefix())
+	require.Equal(t, `D:\dl\x`, st.downloadDir())
+}
+
 func TestRenamePrefix(t *testing.T) {
 	cases := []struct {
 		addMsgId, channelOn bool
