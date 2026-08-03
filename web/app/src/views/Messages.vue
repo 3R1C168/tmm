@@ -74,7 +74,7 @@
               <LazyThumb :src="api.mediaThumbUrl(current.id, res.id)" :placeholder="res.media?.stripped?.dataUri || ''" />
             </div>
             <div class="search-item-body">
-              <div class="search-item-text">{{ firstLine(res.text, 150) || '(无文本)' }}</div>
+              <div class="search-item-text">{{ searchSnippet(res.text) || '(无文本)' }}</div>
               <div class="search-item-date muted">{{ dateStrFromTs(res.date) }}</div>
             </div>
           </div>
@@ -441,12 +441,14 @@ async function jumpToResult(res) {
     ElMessage.error(e.message || '跳转失败')
   }
 }
-// firstLine 取文本首行并截断（与 Tasks.vue 同款，搜索下拉里显示一行摘要）
-function firstLine(text, max = 30) {
+// searchSnippet 把消息全文的换行/连续空白转成单个空格，形成连续文本再截断。
+// 与 firstLine（只取首行）不同：多行消息（首行 #标签 标题 + 后续正文）会完整
+// 铺开填充搜索下拉的右侧空白，避免只显示一行标题。
+function searchSnippet(text, max = 150) {
   if (!text) return ''
-  const line = String(text).split(/\r?\n/)[0].trim()
-  if (!line) return ''
-  return line.length > max ? line.slice(0, max) + '…' : line
+  const s = String(text).replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  return s.length > max ? s.slice(0, max) + '…' : s
 }
 
 const viewer = ref({ show: false, index: 0 })
