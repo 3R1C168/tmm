@@ -99,6 +99,11 @@ type Server struct {
 	msgsMu       sync.Mutex
 	msgsInflight map[string]*msgsCall
 
+	// searchInflight deduplicates concurrent SearchMessages RPCs for the same
+	// (ns, chat, q, offset) key. Same detached-background pattern as msgsInflight.
+	searchMu       sync.Mutex
+	searchInflight map[string]*searchCall
+
 	shutdownOnce sync.Once
 	shutdownDone chan struct{}
 }
@@ -132,12 +137,13 @@ func New(opts Options, stg kv.Storage) *Server {
 		proxy:      opts.Proxy,
 		ntp:        opts.NTP,
 		// store lives alongside the data so history survives restarts
-		store:         newStore(storePath(dataDir)),
-		cache:         newCache(cacheRoot()),
-		thumbInflight: make(map[string]chan struct{}),
-		noThumb:       make(map[string]time.Time),
-		msgsInflight:  make(map[string]*msgsCall),
-		shutdownDone:  make(chan struct{}),
+		store:          newStore(storePath(dataDir)),
+		cache:          newCache(cacheRoot()),
+		thumbInflight:  make(map[string]chan struct{}),
+		noThumb:        make(map[string]time.Time),
+		msgsInflight:   make(map[string]*msgsCall),
+		searchInflight: make(map[string]*searchCall),
+		shutdownDone:   make(chan struct{}),
 	}
 	s.accounts = newAccountManager(stg, opts.Proxy, opts.NTP)
 	s.tasks = newTaskManager(s)
@@ -268,6 +274,8 @@ func (s *Server) router() *mux.Router {
 	// chats & messages (message browser)
 	api.HandleFunc("/chats", s.handleListChats).Methods(http.MethodGet)
 	api.HandleFunc("/chats/{id}/messages", s.handleListMessages).Methods(http.MethodGet)
+	api.HandleFunc("/chats/{id}/search", s.handleChatSearch).Methods(http.MethodGet)
+	api.HandleFunc("/chats/{id}/around", s.handleChatAround).Methods(http.MethodGet)
 
 	// media preview / streaming
 	api.HandleFunc("/media/{id}/{msg}/info", s.handleMediaInfo).Methods(http.MethodGet)

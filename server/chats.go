@@ -33,6 +33,16 @@ type msgsCall struct {
 	err  error
 }
 
+// searchCacheTTL 搜索缓存短 TTL——搜索结果秒回但避免高频重复 RPC。
+const searchCacheTTL = 5 * time.Minute
+
+// searchCall 是并发搜索请求共享结果的 flight。
+type searchCall struct {
+	done chan struct{}
+	res  *chat.SearchResult
+	err  error
+}
+
 // fetchMessagesFlight runs FetchMessages on a background context detached
 // from the HTTP request, deduplicated per cacheKey. If the user navigates
 // away mid-fetch (aborting the request), the RPC still completes and caches
@@ -220,4 +230,116 @@ func (s *Server) warmupChatThumbs(a *account, chatID string, msgs []*chat.Messag
 	ctx := s.warmupSession.ctx
 	s.warmupMu.Unlock()
 	go s.warmupThumbs(ctx, a, chatID, msgs)
+}
+
+// handleChatSearch searches a chat's messages (server-side index, messages.search).
+// Query: q (search text), offset (msgid cursor), limit.
+// Results are cached with a short TTL; concurrent identical queries share one RPC.
+func (s *Server) handleChatSearch(w http.ResponseWriter, r *http.Request) {
+	a := s.activeAccount()
+	if a == nil {
+		writeErr(w, http.StatusBadRequest, errString("尚未登录账号"))
+		return
+	}
+	chatID := mux.Vars(r)["id"]
+	q := r.URL.Query().Get("q")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	if !chat.ValidSearchQuery(q) {
+		writeErr(w, http.StatusBadRequest, errString("搜索关键词为空"))
+		return
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	cacheKey := "search_" + a.ns + "_" + chatID + "_" + q + "_" + strconv.Itoa(offset)
+
+	// 缓存命中
+	var cachedRes chat.SearchResult
+	if fresh, _ := s.cache.readMeta(cacheKey, searchCacheTTL, &cachedRes); fresh {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"results":    cachedRes.Results,
+			"nextOffset": cachedRes.NextOffset,
+			"count":      cachedRes.Count,
+			"cached":     true,
+		})
+		return
+	}
+
+	// 单飞：同 (chat, q, offset) 并发共享一个 RPC
+	s.searchMu.Lock()
+	if c, ok := s.searchInflight[cacheKey]; ok {
+		s.searchMu.Unlock()
+		select {
+		case <-c.done:
+			if c.err != nil {
+				writeErr(w, http.StatusServiceUnavailable, errString("连接重连中，请稍候"))
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"results":    c.res.Results,
+				"nextOffset": c.res.NextOffset,
+				"count":      c.res.Count,
+				"cached":     false,
+			})
+			return
+		case <-r.Context().Done():
+			writeErr(w, http.StatusServiceUnavailable, errString("连接重连中，请稍候"))
+			return
+		case <-time.After(45 * time.Second):
+			writeErr(w, http.StatusServiceUnavailable, errString("等待搜索超时"))
+			return
+		}
+	}
+	c := &searchCall{done: make(chan struct{})}
+	s.searchInflight[cacheKey] = c
+	s.searchMu.Unlock()
+
+	// 后台执行（detached ctx，复用 fetchMessagesFlight 模式）
+	c.res, c.err = chat.SearchMessages(context.Background(), a.client, a.kvd, chatID, q, offset, limit)
+	if c.err == nil && c.res != nil && len(c.res.Results) > 0 {
+		_ = s.cache.writeMeta(cacheKey, *c.res)
+	}
+
+	s.searchMu.Lock()
+	delete(s.searchInflight, cacheKey)
+	s.searchMu.Unlock()
+	close(c.done)
+
+	if c.err != nil {
+		writeErr(w, http.StatusServiceUnavailable, errString("连接重连中，请稍候"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":    c.res.Results,
+		"nextOffset": c.res.NextOffset,
+		"count":      c.res.Count,
+		"cached":     false,
+	})
+}
+
+// handleChatAround fetches the message at msgID plus the preceding history,
+// for jump-to-context positioning. Query: msg (message id), limit.
+func (s *Server) handleChatAround(w http.ResponseWriter, r *http.Request) {
+	a := s.activeAccount()
+	if a == nil {
+		writeErr(w, http.StatusBadRequest, errString("尚未登录账号"))
+		return
+	}
+	chatID := mux.Vars(r)["id"]
+	msgID, _ := strconv.Atoi(r.URL.Query().Get("msg"))
+	if msgID <= 0 {
+		writeErr(w, http.StatusBadRequest, errString("消息ID无效"))
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	msgs, err := chat.FetchMessageAround(r.Context(), a.client, a.kvd, chatID, msgID, limit)
+	if err != nil {
+		s.log().Warn("fetch around failed", zap.String("chat", chatID), zap.Int("msg", msgID), zap.Error(err))
+		writeErr(w, http.StatusServiceUnavailable, errString("连接重连中，请稍候"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
 }

@@ -19,6 +19,8 @@ func newTestServer(t *testing.T, webRoot string) *Server {
 		qr:     newQRManager(),
 		code:   newCodeManager(),
 		store:  newStore(filepath.Join(t.TempDir(), "tasks.json")),
+		// 空的 account manager：activeAccount() 无账号返回 nil（不连 telegram）
+		accounts: newAccountManager(nil, "", ""),
 	}
 }
 
