@@ -49,6 +49,20 @@ func TestSPAFallback(t *testing.T) {
 	require.Equal(t, string(index), rec.Body.String())
 	require.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
 
+	// missing asset (e.g. stale hash from an old index.html) must 404, NOT
+	// fall back to index.html — otherwise the browser parses HTML as JS/CSS
+	// and shows a silent blank page.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/assets/stale-OLD.js", nil)
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.NotEqual(t, string(index), rec.Body.String(), "missing asset must not serve index.html")
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/assets/stale-OLD.css", nil)
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
 	// index.html itself is no-cache
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/index.html", nil)

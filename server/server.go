@@ -361,6 +361,12 @@ func taskSnapshot(t *Task) map[string]any {
 
 // spaHandler serves the built frontend, falling back to index.html for
 // client-side routes. index.html is served with no-cache.
+//
+// 资源路径（带扩展名，如 /assets/xxx.js）在文件不存在时返回 404，而不是
+// fallback 到 index.html——否则浏览器把 HTML 当 JS/CSS 加载会 SyntaxError
+// 白屏（旧 index.html 引用已被新构建删除的 hash 资源时，每次启动都复现，
+// 且 200 状态让开发者工具看不出错误）。SPA 路由（无扩展名，如 /messages）
+// 仍 fallback 到 index.html。
 func (s *Server) spaHandler() http.Handler {
 	root := s.opts.WebRoot
 	fs := http.FileServer(http.Dir(root))
@@ -378,6 +384,14 @@ func (s *Server) spaHandler() http.Handler {
 				w.Header().Set("Cache-Control", "no-cache")
 			}
 			fs.ServeHTTP(w, r)
+			return
+		}
+
+		// 带扩展名的路径 = 静态资源请求（如 /assets/xxx.js）。文件不存在时
+		// 返回 404，让浏览器正确报告资源缺失，而不是拿 index.html 当 JS 执行。
+		// 无扩展名的路径（SPA 路由）才 fallback。
+		if filepath.Ext(r.URL.Path) != "" {
+			http.NotFound(w, r)
 			return
 		}
 
