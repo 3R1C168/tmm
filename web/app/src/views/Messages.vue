@@ -107,8 +107,10 @@
             :min-item-size="320"
             class="scroller"
             key-field="key"
+            emit-update
             @scroll="onMsgScroll"
             @scroll-end="onMsgScroll"
+            @update="onScrollerUpdate"
             v-slot="{ item, index, active }"
           >
             <DynamicScrollerItem
@@ -268,6 +270,18 @@
         <transition name="fab">
           <button v-if="showBackTop" class="back-top" @click="backToTop" title="回到最新"><ArrowUp :size="20" /></button>
         </transition>
+
+        <!-- 未读跳转按钮：方向随位置动态（未读区↑跳未读末尾=已读；历史区↓回第一条未读） -->
+        <button
+          v-if="current && hasUnread"
+          class="jump-btn"
+          :class="{ 'up': inUnreadArea, 'down': !inUnreadArea }"
+          @click="jumpUnread"
+          :title="inUnreadArea ? '跳到未读末尾（全部已读）' : '回到第一条未读'"
+        >
+          <ArrowUp v-if="inUnreadArea" :size="20" />
+          <ArrowDown v-else :size="20" />
+        </button>
       </template>
     </section>
 
@@ -363,13 +377,16 @@ import LazyThumb from '../components/LazyThumb.vue'
 import TelegraphReader from '../components/TelegraphReader.vue'
 import CommentsPanel from '../components/CommentsPanel.vue'
 import ReactionBadge from '../components/ReactionBadge.vue'
-import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ExternalLink, MessageCircle, CircleCheckBig } from 'lucide-vue-next'
+import { Play, Pause, Download, RefreshCw, Eye, FileText, Loader2, ArrowUp, ArrowDown, ExternalLink, MessageCircle, CircleCheckBig } from 'lucide-vue-next'
 import { calculateAlbumLayout } from '../utils/albumLayout'
 import { loadDownloadHistory, addDownloadedKey, isDownloaded } from '../utils/downloadHistory'
 
 const router = useRouter()
 const store = useAppStore()
 const player = usePlayerStore()
+// 已读设置（autoRead）：无 settings store，与 Settings.vue 同模式从 api 读取；
+// 默认 true（与后端 defaultSettings 一致），onMounted 拉取真实值覆盖
+const settings = ref({ autoRead: true })
 
 const chats = ref([])
 const chatsLoading = ref(false)
@@ -414,6 +431,22 @@ const showBackTop = ref(false)
 const scrollerRef = ref(null) // DynamicScroller，用于"定位到消息" + 滚动元素
 // 连接重连中提示：后端返回 503 时置 true，前端自动轮询重试
 const reconnecting = ref(false)
+
+// --- 未读跳转按钮状态（Task 4）---
+// 未读起点（第一条未读消息 ID）；无未读分界时为 0（按钮隐藏）
+const unreadFirstId = computed(() => current.value?.readInboxMaxId > 0 ? current.value.readInboxMaxId + 1 : 0)
+// 未读末尾 = 频道最新消息 ID（TopMessage）；v1 用已加载消息里的最大 id（messages[0]，列表倒序）
+const unreadLastId = computed(() => {
+  if (!messages.value.length) return 0
+  return messages.value[0].id
+})
+// 是否真有未读（跳转按钮显隐 + 分隔线开关）：未读起点在已加载最新之下才成立。
+// 全已读（readInboxMaxId = 最新，如刚 markRead 后）时 readInboxMaxId+1 > 最新 → 无未读
+const hasUnread = computed(() => unreadFirstId.value > 0 && unreadLastId.value > 0 && unreadFirstId.value <= unreadLastId.value)
+// 当前是否在未读区（↑ 跳未读末尾=已读）vs 已读历史（↓ 回第一条未读）
+const inUnreadArea = ref(true) // 默认在未读区（进入定位到第一条未读）
+// 当前视口顶部条目 index（vue-virtual-scroller 无 getCurrentIndex，用 emit-update 跟踪）
+const currentVisibleIndex = ref(0)
 
 // --- 频道内搜索状态（独立于 messages/session，不污染现有分页/筛选） ---
 const searchOpen = ref(false)
@@ -599,10 +632,12 @@ const displayItems = computed(() => {
   const seen = new Map()
   // 未读分界：readInboxMaxId 处插入「未读消息」分隔线（列表倒序，第一条
   // id <= readInboxMaxId 的消息即已读区顶部，在其前插入）。
+  // 仅在真有未读（hasUnread：未读起点 <= 已加载最新）时插入——全已读
+  // （readInboxMaxId = 最新，如刚 markRead 后）时顶部不应出现"未读消息"线。
   const readBoundary = current.value?.readInboxMaxId > 0 ? current.value.readInboxMaxId : 0
   let dividerAdded = false
   for (const m of messages.value) {
-    if (readBoundary > 0 && !dividerAdded && m.id <= readBoundary) {
+    if (readBoundary > 0 && hasUnread.value && !dividerAdded && m.id <= readBoundary) {
       items.push({ type: 'divider', key: chatKey + '-divider-' + m.id })
       dividerAdded = true
     }
@@ -645,6 +680,11 @@ onMounted(async () => {
   await loadChats()
   await nextTick()
   setupChatObserver()
+  // 拉取已读设置（autoRead），失败保持默认 true（与后端 defaultSettings 一致）
+  try {
+    const s = await api.getSettings()
+    if (s && typeof s.autoRead === 'boolean') settings.value.autoRead = s.autoRead
+  } catch { /* 默认自动已读 */ }
   document.addEventListener('mousedown', onDocMouseDown) // 外部点击关闭搜索下拉
   // 下载历史：初始化已下载坐标集（判断下载按钮是否变勾）
   refreshDownloadHistory()
@@ -877,6 +917,49 @@ function onMsgScroll() {
     loadMore()
   }
   showBackTop.value = el.scrollTop > 400
+  updateInUnreadArea()
+}
+
+// vue-virtual-scroller 的 update 事件：参数为 [startIndex, endIndex, visibleStartIndex, visibleEndIndex]
+// （本组件没有 getCurrentIndex 方法）。在未读区分隔线之上（index < dividerIdx）= 未读区。
+function onScrollerUpdate(_startIndex, _endIndex, visibleStartIndex) {
+  currentVisibleIndex.value = visibleStartIndex || 0
+  updateInUnreadArea()
+}
+
+function updateInUnreadArea() {
+  // 简化判断：滚动位置 <= 分隔线位置 = 在未读区；否则在历史
+  // 用 displayItems 找分隔线 index，比较 scroller 当前 index
+  const dividerIdx = displayItems.value.findIndex((it) => it.type === 'divider')
+  inUnreadArea.value = dividerIdx < 0 || currentVisibleIndex.value < dividerIdx
+}
+
+// 右下角跳转按钮：方向随位置动态
+// - 在未读区（默认）：↑ 跳到未读末尾（最后一条未读=最新）→ 触发已读
+// - 在已读历史（往下滚过分隔线）：↓ 回第一条未读（不触发已读）
+function jumpUnread() {
+  if (inUnreadArea.value) {
+    // ↑ 跳未读末尾 = 最新 = 全频道已读
+    scrollToMsg(unreadLastId.value)
+    markReadCurrent()
+  } else {
+    // ↓ 回第一条未读
+    scrollToMsg(unreadFirstId.value)
+  }
+}
+async function markReadCurrent() {
+  if (!current.value || !unreadLastId.value) return
+  if (!settings.value.autoRead) return // 手动模式：只跳转，不自动已读
+  try {
+    await api.markRead(String(current.value.id), unreadLastId.value)
+    // 更新本地未读状态：ReadInboxMaxID 推进到最新 → 无未读
+    current.value.readInboxMaxId = unreadLastId.value
+    refreshChatsUnread() // 刷新会话列表未读徽标
+  } catch { /* 静默 */ }
+}
+function refreshChatsUnread() {
+  // 刷新会话列表未读徽标（api.listChats(true) 或本地更新）
+  loadChats(true)
 }
 
 function backToTop() {
@@ -1485,6 +1568,19 @@ function fmtDate(ts) {
   box-shadow: 0 4px 12px rgba(0,0,0,.25);
 }
 .back-top:hover { filter: brightness(1.1); }
+/* 未读跳转按钮：右下角（在 back-top 上方，位置不重叠），方向随位置动态 */
+.jump-btn {
+  position: absolute; right: 24px; bottom: 80px; z-index: 10;
+  width: 44px; height: 44px; border: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; transition: .15s;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25);
+}
+/* 未读区（↑）：强调色，跳末尾=已读 */
+.jump-btn.up { background: var(--accent); }
+/* 历史区（↓）：中性灰底，回第一条未读 */
+.jump-btn.down { background: var(--text-3, #999); }
+.jump-btn:hover { filter: brightness(1.1); }
 /* 进出场动画 */
 .fab-enter-active, .fab-leave-active { transition: all .2s ease; }
 .fab-enter-from, .fab-leave-to { opacity: 0; transform: scale(.8) translateY(8px); }
