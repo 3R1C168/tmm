@@ -59,25 +59,29 @@
             />
             <button v-if="searchQuery" class="search-clear" @click="clearSearch">✕</button>
           </div>
-          <!-- 只看媒体：按钮点击高亮（mediaOnly 激活态），切换后重载消息 -->
-          <button
-            class="chat-media-btn"
-            :class="{ active: mediaOnly }"
-            @click="mediaOnly = !mediaOnly; reloadMessages(true)"
-            title="只看媒体"
-          >只看媒体</button>
-          <el-button size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
-          <el-button size="small" @click="rangeDialog = true">按范围下载</el-button>
-          <el-button
-            size="small"
-            :disabled="!hasUnread"
-            @click="markReadCurrent"
-            title="将该频道全部标记为已读"
-          >全部已读</el-button>
-          <button class="chat-refresh-btn" :disabled="msgsLoading" @click="reloadMessages(true)" title="刷新消息">
-            <RefreshCw v-if="!msgsLoading" :size="14" />
-            <Loader2 v-else :size="14" class="spin" />
-          </button>
+          <!-- 频道操作按钮组：只看媒体/下载所选/按范围下载/全部已读/刷新 抱团 -->
+          <div class="chat-actions">
+            <!-- 只看媒体：与下载所选等按钮同款 el-button（视觉匹配），active 高亮激活态 -->
+            <el-button
+              size="small"
+              class="chat-media-btn"
+              :class="{ active: mediaOnly }"
+              @click="mediaOnly = !mediaOnly; reloadMessages(true)"
+              title="只看媒体"
+            >只看媒体</el-button>
+            <el-button size="small" :disabled="!selected.size" @click="downloadSelected">下载所选 ({{ selected.size }})</el-button>
+            <el-button size="small" @click="rangeDialog = true">按范围下载</el-button>
+            <el-button
+              size="small"
+              :disabled="!hasUnread"
+              @click="markReadCurrent"
+              title="将该频道全部标记为已读"
+            >全部已读</el-button>
+            <button class="chat-refresh-btn" :disabled="msgsLoading" @click="reloadMessages(true)" title="刷新消息">
+              <RefreshCw v-if="!msgsLoading" :size="14" />
+              <Loader2 v-else :size="14" class="spin" />
+            </button>
+          </div>
         </header>
 
         <!-- 频道内搜索下拉：覆盖在消息区上方，独立于消息列表状态 -->
@@ -1305,14 +1309,16 @@ function fmtDate(ts) {
 .chat-refresh-btn:disabled { opacity: .6; cursor: default; }
 .chat-refresh-btn .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-/* 只看媒体：按钮点击高亮激活态，与其他标题栏按钮视觉统一 */
-.chat-media-btn {
-  flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); background: transparent; color: var(--text-3);
-  cursor: pointer; font-size: 13px; transition: .15s;
+/* 频道操作按钮组：只看媒体/下载所选/按范围下载/全部已读/刷新 抱团（间隙收紧） */
+.chat-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+/* 覆盖 Element Plus 相邻按钮 margin-left:12px，让组内间隙统一由 gap 控制 */
+.chat-actions .el-button + .el-button { margin-left: 0; }
+/* 只看媒体：复用 el-button 基础外观（与下载所选等按钮同款），仅覆盖激活态高亮 */
+.chat-media-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
-.chat-media-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-.chat-media-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .chat-items { flex: 1; overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .chat-item { display: flex; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: .13s; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
 .chat-item:hover { border-color: var(--accent); }
