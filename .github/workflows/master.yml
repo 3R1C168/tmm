@@ -96,15 +96,16 @@ jobs:
         shell: bash
         run: |
           # tmm 运行目录结构：exe + web/（前端产物）
-          mkdir -p pkg/web
-          cp tmm.exe pkg/
-          cp -r web/app/dist/assets pkg/web/assets
-          cp -r web/app/dist/twemoji pkg/web/twemoji 2>/dev/null || true
-          cp -r web/app/dist/icons pkg/web/icons 2>/dev/null || true
-          cp web/app/dist/index.html pkg/web/index.html
+          # 注意：不能用 pkg/ 做打包目录——tdl 的 pkg/ 是 Go 源码目录，会把源码打进包里
+          mkdir -p bundle/web
+          cp tmm.exe bundle/
+          cp -r web/app/dist/assets bundle/web/assets
+          cp -r web/app/dist/twemoji bundle/web/twemoji 2>/dev/null || true
+          cp -r web/app/dist/icons bundle/web/icons 2>/dev/null || true
+          cp web/app/dist/index.html bundle/web/index.html
           # 打包 zip：用 PowerShell Compress-Archive（Windows tar -a 不支持 zip，
           # 会把 .zip 名写成 gzip 格式，产物打不开）
-          powershell -Command "Compress-Archive -Path pkg/* -DestinationPath tmm-win64.zip -Force"
+          powershell -Command "Compress-Archive -Path bundle/* -DestinationPath tmm-win64.zip -Force"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
