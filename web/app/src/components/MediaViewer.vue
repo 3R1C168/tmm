@@ -23,15 +23,18 @@
 
         <!-- 媒体区 -->
         <div class="mv-stage" ref="stageEl" @wheel.prevent="onWheel">
-          <img
-            v-if="!isVideo"
-            :key="item.id"
-            :src="src"
-            class="mv-img"
-            :style="{ transform: `scale(${zoom})` }"
-            draggable="false"
-            @load="onImgLoad"
-          />
+          <!-- 图片容器：与视频 wrap 同款（aspectRatio 定高 + contain），
+               保证图片与视频缩放/黑边行为完全一致 -->
+          <div v-if="!isVideo" class="mv-img-wrap" :style="videoWrapStyle">
+            <img
+              :key="item.id"
+              :src="src"
+              class="mv-img"
+              :style="{ transform: `scale(${zoom})` }"
+              draggable="false"
+              @load="onImgLoad"
+            />
+          </div>
           <div v-else class="mv-video-wrap" :style="videoWrapStyle">
             <video
               ref="videoEl"
@@ -445,7 +448,8 @@ onBeforeUnmount(() => {
 .mv-icon-btn:hover { background: rgba(255,255,255,.2); }
 
 .mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; border-radius: var(--radius-lg); }
-.mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
+.mv-img-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; border-radius: var(--radius); }
+.mv-img { width: 100%; height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; border-radius: var(--radius); }
 /* 视频容器：撑满 stage 高度，按比例 contain 不裁切；圆角匹配整体风格（video + 控件条统一裁切） */
 .mv-video-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; border-radius: var(--radius); }
 .mv-video { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: var(--radius); }
