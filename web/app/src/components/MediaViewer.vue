@@ -43,6 +43,19 @@
               playsinline
               preload="auto"
               :data-poster="poster"
+              :volume="vVolume"
+              :muted="vMuted"
+              :playbackRate="vRate"
+              @play="vPlaying = true"
+              @pause="vPlaying = false"
+              @ended="vPlaying = false"
+              @timeupdate="vCurrent = $event.target.currentTime"
+              @durationchange="vDuration = $event.target.duration"
+              @loadedmetadata="vDuration = $event.target.duration"
+              @progress="onBuffered"
+              @volumechange="onVolumeChange"
+              @ratechange="vRate = $event.target.playbackRate"
+              @seeked="onSeeked"
             />
             <!-- 加载 / 错误提示：流式起播需要拉取首块 + 尾部 moov，给可读反馈 -->
             <div v-if="videoLoading" class="mv-vstatus">
@@ -54,6 +67,26 @@
               <span class="mv-vstatus-sub">{{ videoError }}</span>
               <button class="mv-dl" @click="download"><Download :size="16" /> 下载后本地播放</button>
             </div>
+            <VideoControls
+              v-if="!videoError"
+              :playing="vPlaying"
+              :current-time="vCurrent"
+              :duration="vDuration"
+              :buffered="vBuffered"
+              :volume="vVolume"
+              :muted="vMuted"
+              :theater="theater"
+              :loading="videoLoading"
+              :error="''"
+              :playback-rate="vRate"
+              @play="videoEl?.play()"
+              @pause="videoEl?.pause()"
+              @seek="onSeek"
+              @set-volume="onSetVolume"
+              @toggle-mute="onToggleMute"
+              @toggle-theater="toggleTheater"
+              @set-rate="onSetRate"
+            />
           </div>
 
           <!-- 图片控制条：浮在图片底部，hover 显隐 -->
@@ -76,9 +109,8 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
-import Plyr from 'plyr'
-import 'plyr/dist/plyr.css'
 import { api } from '../api'
+import VideoControls from './VideoControls.vue'
 import { fmtBytes } from '../utils/format'
 import { isVideo as isVideoMedia } from '../utils/media'
 import { Download, X, TriangleAlert, ChevronLeft, ChevronRight, ZoomOut, ZoomIn, RotateCcw } from 'lucide-vue-next'
@@ -104,7 +136,16 @@ const videoError = ref('')
 const theater = ref(false)
 const viewportW = ref(window.innerWidth)
 const viewportH = ref(window.innerHeight)
-let plyr = null
+
+// video 播放状态：从原生事件同步，下传给 VideoControls
+const vPlaying = ref(false)
+const vCurrent = ref(0)
+const vDuration = ref(0)
+const vBuffered = ref(0)
+const vVolume = ref(parseFloat(localStorage.getItem('tmm-volume') || '0.5') || 0.5)
+const vMuted = ref(false)
+const vRate = ref(1)
+let seeking = false  // seek 拖动防重入 flag
 
 const item = computed(() => props.list[index.value] || null)
 const isVideo = computed(() => isVideoMedia(item.value?.media))
@@ -130,14 +171,14 @@ const cardStyle = computed(() => {
   if (theater.value) return { width: '100%', height: '100%', borderRadius: '0' }
   const w = info.value?.width || naturalW.value
   const h = info.value?.height || naturalH.value
-  // 最大化：卡片占视口宽 96%、高 94%。顶栏悬浮不占布局，高度只扣 Plyr 控件条。
+  // 最大化：卡片占视口宽 96%、高 94%。顶栏悬浮不占布局，高度只扣控件条。
   const maxW = viewportW.value * 0.96
   const maxH = viewportH.value * 0.94
   if (!w || !h) {
     return { width: maxW + 'px', height: maxH + 'px' }
   }
   const ar = w / h
-  const controlsBar = 50 // Plyr 控件条约估，顶栏已悬浮不占
+  const controlsBar = 50 // 控件条约估，顶栏已悬浮不占
   // 按高度优先：视频高度撑满 maxH - 控件条，宽度按比例算
   let vh = maxH - controlsBar
   let cw = vh * ar
@@ -178,7 +219,7 @@ watch(index, () => resetMedia())
 watch([src, isVideo, () => props.modelValue], async () => {
   if (!props.modelValue || !isVideo.value) return
   await nextTick()
-  setupPlyr()
+  setupVideo()
 }, { flush: 'post' })
 
 function onResize() {
@@ -188,14 +229,13 @@ function onResize() {
 onMounted(() => window.addEventListener('resize', onResize))
 
 async function resetMedia() {
-  // 切换上/下一条时不销毁 Plyr（销毁+重建会丢失 video ref，Plyr 包装/解包
-  // 过程导致 video DOM 元素移位）。改由 setupPlyr 复用已包装的 video 直接更新
-  // src，Plyr 会自动重载新视频。
-  // 例外：切到图片（isVideo 变 false）时 <video> 被 v-if 卸载重建，Plyr 实例
-  // 绑定的还是旧节点——必须销毁，否则切回视频走"复用"分支时控件（进度条/音量/
-  // 全屏）全挂在已卸载节点上，新视频控制失灵。旧节点已卸载，destroy 安全。
-  if (plyr && !isVideo.value) destroyPlyr()
+  // 原生 video：切上/下一条直接改 src，无包装层无 ref 丢失问题。
+  // 切到图片时 video 被 v-if 卸载，无需 destroy。
   zoom.value = 1
+  // 切视频时重置播放状态
+  vPlaying.value = false
+  vCurrent.value = 0
+  vBuffered.value = 0
   loadInfo()
 }
 
@@ -207,166 +247,72 @@ async function loadInfo() {
   } catch { /* optional */ }
 }
 
-function setupPlyr() {
+// 原生 video 初始化：设 src、恢复音量、autoplay、启动加载轮询
+function setupVideo() {
   const el = videoEl.value
   if (!el || !el.isConnected) return
-
-  // If Plyr already exists (switching to next/prev video), reuse it: just
-  // update the src and reset state. Destroying+recreating Plyr loses the
-  // video ref because Plyr replaces the original <video> with its wrapper
-  // DOM, and destroy's restoration is unreliable across rapid switches.
-  if (plyr) {
-    el.src = src.value
-    videoLoading.value = true
-    videoError.value = ''
-    retriedSrcError = false
-    // 直接改 el.src 不会触发 Plyr 的 autoplay（autoplay 只在初始化/设置 source
-    // 时生效），切换后视频会停在首帧暂停、spinner 卡住 → 显式 play 一次对齐
-    // autoplay 意图；被浏览器自动播放策略拒绝则忽略（用户手动点播放即可，
-    // readyState>=2 后 spinner 会消失）。
-    const p = plyr.play()
-    if (p && p.catch) p.catch(() => {})
-    watchVideoLoading()
-    return
-  }
-
-  // First-time setup: create Plyr
   el.src = src.value
+  el.volume = vVolume.value
+  el.muted = vMuted.value
+  el.playbackRate = vRate.value
   videoLoading.value = true
   videoError.value = ''
   retriedSrcError = false
-  // 全局音量：从 localStorage 恢复，默认 50%。切换视频时保持同一音量。
-  const savedVol = parseFloat(localStorage.getItem('tmm-volume') || '0.5')
-  const vol = isNaN(savedVol) ? 0.5 : Math.min(1, Math.max(0, savedVol))
-  plyr = new Plyr(el, {
-    controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings'],
-    settings: ['speed'],
-    speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
-    i18n: {
-      speed: '播放速度',
-      normal: '正常',
-      settings: '设置',
-      menuBack: '返回上一菜单',
-      play: '播放',
-      pause: '暂停',
-      mute: '静音',
-      unmute: '取消静音',
-      volume: '音量',
-      currentTime: '当前时间',
-      duration: '时长',
-      seek: '跳转',
-    },
-    // CC/字幕功能整体关掉：控件列表不含 captions，设置菜单限 speed，
-    // 这里再显式禁用字幕避免视频带轨道时自动启用。
-    captions: { active: false, language: 'auto', update: false },
-    autoplay: true,
-    muted: false,
-    volume: vol,
-    clickToPlay: true,
-    hideControls: false,
-    resetOnEnd: true,
-  })
-  // autoplay:true 已在新实例内部触发 play，但浏览器自动播放策略可能拒绝
-  // （无手势 + 非静音）。显式再 play 一次捕获 rejection，避免 unhandled
-  // rejection 告警；被拒则停在首帧，readyState>=2 后 spinner 仍会消失。
-  const pp = plyr.play()
-  if (pp && pp.catch) pp.catch(() => {
-    // 浏览器仍拦截（极少见）：停在首帧，用户点播放键即可，spinner 会消失
-  })
-  // 音量变化时存到 localStorage（全局生效，下次打开/切换视频恢复）+ 同步弹出条数字
-  plyr.on('volumechange', () => {
-    if (plyr && !plyr.muted) localStorage.setItem('tmm-volume', String(plyr.volume))
-    syncVolVal()
-  })
-  syncVolVal()
-
-  // 拖动进度后自动恢复播放：Plyr 拖动 seek 时会暂停视频，seek 完成后停在
-  // 暂停状态，看起来像"拖动卡住"。这里在 seek 开始时记住是否在播放，
-  // seeked（拖动结束）后若之前在播放则自动 play。跳过"即将暂停"的 seek
-  // 事件（如切视频时 Plyr 内部 seek），避免误恢复。
-  let playingBeforeSeek = false
-  let seekOngoing = false
-  plyr.on('seeking', () => {
-    if (plyr.playing) {
-      playingBeforeSeek = true
-      seekOngoing = true
-    }
-  })
-  plyr.on('seeked', () => {
-    if (seekOngoing && playingBeforeSeek) {
-      const p = plyr.play()
-      if (p && p.catch) p.catch(() => {})
-    }
-    seekOngoing = false
-    playingBeforeSeek = false
-  })
-
-  // 拖动进度后自动恢复播放（seeked 恢复在下方已实现）。
-  // 注意：不在这里加 waiting/stalled 自动 play 轮询——HTML5 video 缓冲充足时
-  // 会自动继续播放，手动 play() 反而可能打断/触发非手势拒绝；且复杂状态机
-  // 在切换视频时易残留，曾导致播放异常。
-
-  // ArtPlayer 风格：控件叠加在视频底部（渐变遮罩），不再移到独立黑框
+  // autoplay：浏览器策略可能拒绝（无手势+非静音），捕获 rejection 停首帧
+  const p = el.play()
+  if (p && p.catch) p.catch(() => {})
   watchVideoLoading()
-
-  // 注入"网页全屏"按钮到 Plyr 控件条（音量右边）：Plyr 不自带此控件，
-  // 用 DOM 插入一个与 Plyr 原生按钮同风格的按钮，点击触发 theater 模式
-  // （网页全屏，非浏览器全屏 API）。
-  injectTheaterButton()
 }
 
-function injectTheaterButton() {
-  if (!plyr) return
-  const controls = plyr.elements?.container?.querySelector('.plyr__controls')
-  if (!controls) return
-  // 避免重复注入
-  if (controls.querySelector('.plyr__theater-btn')) return
-  const btn = document.createElement('button')
-  btn.className = 'plyr__control plyr__theater-btn'
-  btn.type = 'button'
-  btn.title = '网页全屏'
-  updateTheaterBtnIcon(btn, theater.value)
-  btn.addEventListener('click', (e) => { e.preventDefault(); toggleTheater() })
-  controls.appendChild(btn)
+// video 事件处理
+function onBuffered(e) {
+  const v = e.target
+  try {
+    if (v.buffered.length) vBuffered.value = v.buffered.end(v.buffered.length - 1) / (v.duration || 1)
+  } catch { /* buffered 未就绪 */ }
 }
-
-function updateTheaterBtnIcon(btn, isTheater) {
-  // 进入网页全屏用 Minimize 图标，否则 Maximize 图标（Lucide 同款 path）
-  const path = isTheater
-    ? '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>'
-    : '<path d="M3 8V5a2 2 0 0 1 2-2h3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3"/>'
-  btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>'
+function onVolumeChange(e) {
+  vVolume.value = e.target.volume
+  vMuted.value = e.target.muted
+  if (!e.target.muted) localStorage.setItem('tmm-volume', String(e.target.volume))
 }
-
-// theater 状态变化时同步注入按钮的图标
-watch(theater, (v) => {
-  if (!plyr) return
-  const btn = plyr.elements?.container?.querySelector('.plyr__theater-btn')
-  if (btn) updateTheaterBtnIcon(btn, v)
-})
-
-// 音量百分比数字：在 .plyr__volume 容器里放一个 <span>，hover 音量条时显示。
-// 用 Plyr 的容器元素查找（Plyr 包装后原始 <video> 被替换，videoEl 上
-// closest 不可靠），volumechange 时同步数字（hover 期间实时更新）。
-function syncVolVal() {
-  if (!plyr) return
-  const host = plyr.elements?.container?.querySelector('.plyr__volume')
-  if (!host) return
-  let v = host.querySelector('.vol-val')
-  if (!v) {
-    v = document.createElement('span')
-    v.className = 'vol-val'
-    host.appendChild(v)
-  }
-  v.textContent = (plyr.muted ? 0 : Math.round(plyr.volume * 100)) + '%'
+function onSeek(sec) {
+  const el = videoEl.value
+  if (!el) return
+  seeking = true
+  el.currentTime = sec
+  vCurrent.value = sec
+}
+// seek 拖动后恢复播放：原生 video seek 后多数浏览器保持原播放态，这里兜底
+function onSeeked() {
+  if (seeking) seeking = false
+}
+function onSetVolume(v) {
+  const el = videoEl.value
+  if (!el) return
+  el.volume = v
+  el.muted = v === 0
+  vVolume.value = v
+  vMuted.value = v === 0
+  if (v > 0) localStorage.setItem('tmm-volume', String(v))
+}
+function onToggleMute() {
+  const el = videoEl.value
+  if (!el) return
+  el.muted = !el.muted
+  vMuted.value = el.muted
+}
+function onSetRate(r) {
+  const el = videoEl.value
+  if (!el) return
+  el.playbackRate = r
+  vRate.value = r
 }
 
 function watchVideoLoading() {
-  // Loading / error feedback. 轮询播放状态直到视频就绪（单一 playing/canplay
-  // 监听在 Plyr 包装后不可靠）。
-  // 就绪 = 有数据可播（readyState>=2），不要求"正在播放且时间推进"：切换视频时
-  // Plyr autoplay 可能不生效（见 setupPlyr 复用分支），若要求播放中，停在首帧
-  // 暂停的视频会让 spinner 永远盖住画面、连控件都点不到。
+  // Loading / error feedback. 轮询播放状态直到视频就绪。
+  // 就绪 = 有数据可播（readyState>=2），不要求"正在播放且时间推进"：若要求
+  // 播放中，停在首帧暂停的视频会让 spinner 永远盖住画面、连控件都点不到。
   stopLoadingWatch()
   loadingTimer = setInterval(() => {
     const v = videoEl.value
@@ -414,12 +360,7 @@ function videoErrorText(err) {
   }
 }
 
-function destroyPlyr() {
-  stopLoadingWatch()
-  if (plyr) { try { plyr.destroy() } catch {} plyr = null }
-}
-
-function close() { theater.value = false; destroyPlyr(); emit('update:modelValue', false) }
+function close() { theater.value = false; stopLoadingWatch(); emit('update:modelValue', false) }
 function prev() { if (index.value > 0) index.value-- }
 function next() { if (index.value < props.list.length - 1) index.value++ }
 function download() { if (item.value) emit('download', item.value) }
@@ -443,7 +384,7 @@ function onKey(e) {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
-  destroyPlyr()
+  stopLoadingWatch()
 })
 </script>
 
@@ -509,7 +450,7 @@ onBeforeUnmount(() => {
 
 .mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; }
 .mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
-/* 视频容器：撑满 stage 高度，按比例 contain 不裁切；Plyr 内部 video 也 contain */
+/* 视频容器：撑满 stage 高度，按比例 contain 不裁切 */
 .mv-video-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
 .mv-video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 /* 影院模式：视频铺满整个区域，按高度 contain 等比放大（不裁切，
@@ -562,155 +503,4 @@ onBeforeUnmount(() => {
   background: #4f7cff; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
 }
 .mv-dl:hover { background: #6b93ff; }
-
-/* 播放器黑白主题（ArtPlayer 风格）：控件叠加在视频底部（渐变遮罩），
-   白色主题、半透明白控件、3px 白色进度条无圆点。
-   音量条参照 ArtPlayer：hover 静音按钮时竖向弹出，但去掉默认的黑色圆角
-   底色——只留轨道线 + 白色填充 + 圆点，避免黑色块突兀地压在视频上。
-   absolute 定位在按钮正上方，横向不侵入其他按钮。 */
-:deep(.plyr) {
-  --plyr-color-main: #fff;
-  --plyr-video-control-color: #fff;
-  --plyr-video-control-color-hover: #fff;
-  --plyr-video-control-background: rgba(255,255,255,.15);
-  --plyr-video-control-background-hover: rgba(255,255,255,.3);
-  width: 100%; height: 100%; max-width: 100%;
-}
-:deep(.plyr--video) { background: #000; height: 100%; }
-:deep(.plyr__video-wrapper) { max-width: 100%; height: 100%; }
-:deep(.plyr video) { width: 100%; height: 100%; object-fit: contain; }
-
-/* 控件叠加在视频底部，带渐变遮罩 */
-:deep(.plyr__controls) {
-  position: absolute !important;
-  bottom: 0; left: 0; right: 0;
-  display: flex !important; align-items: center !important;
-  background: linear-gradient(to top, rgba(0,0,0,.8), transparent) !important;
-  padding: 24px 16px 8px !important;
-}
-.mv-overlay.theater :deep(.plyr__controls) { border-radius: 0; }
-:deep(.plyr__controls__item) { margin-right: 8px; }
-:deep(.plyr__theater-btn) { margin-left: 0; }
-
-
-/* 居中大播放按钮：半透明白毛玻璃 */
-:deep(.plyr__control--overlaid) {
-  background: rgba(255,255,255,.18); border-radius: 50%;
-  width: 64px; height: 64px; transition: transform .15s, background .15s;
-  backdrop-filter: blur(4px);
-}
-:deep(.plyr__control--overlaid:hover) { background: rgba(255,255,255,.3); transform: scale(1.08); }
-
-/* 进度条：3px，hover 5px，白色填充无圆点。
-   关键：隐藏 Plyr 默认的缓冲条 __buffer（它和 seek input 各画一条，叠着就
-   是"双进度条"），seek input 独占一条：白色=已播，透明=未播（露出渐变遮罩）。 */
-:deep(.plyr__progress__container) { flex: 1; min-width: 0; }
-:deep(.plyr__progress) {
-  position: relative; height: 3px; cursor: pointer;
-  transition: height .15s; overflow: hidden; border-radius: 3px;
-}
-:deep(.plyr__progress:hover) { height: 5px; }
-:deep(.plyr__progress__buffer) { display: none; }
-:deep(.plyr__progress input[type=range]) {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  z-index: 2; margin: 0; cursor: pointer; padding: 0;
-  -webkit-appearance: none; appearance: none;
-  color: #fff; background: transparent;
-}
-:deep(.plyr__progress input[type=range])::-webkit-slider-runnable-track {
-  height: 100% !important; /* 覆盖 Plyr 默认 height: var(--plyr-range-track-height,5px) */
-  border: none; border-radius: 3px;
-  background-image: linear-gradient(to right, rgba(255,255,255,.55) var(--value, 0%), transparent var(--value, 0%));
-}
-:deep(.plyr__progress input[type=range])::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 0 !important; height: 0 !important; /* 覆盖默认 13px 圆点 */
-  background: transparent; box-shadow: none;
-}
-:deep(.plyr__progress input[type=range])::-moz-range-track {
-  height: 100% !important; border-radius: 3px; background: transparent;
-}
-:deep(.plyr__progress input[type=range])::-moz-range-thumb {
-  width: 0 !important; height: 0 !important;
-  border: none; background: transparent; box-shadow: none;
-}
-
-/* 时间文字 */
-:deep(.plyr__time) { font-size: 12px; color: rgba(255,255,255,.8); }
-
-/* 音量：ArtPlayer 式竖向弹出。hover 静音按钮时从按钮正上方滑出（absolute），
-   无黑色圆角底——轨道 + 白色填充 + 圆点即可。writing-mode + direction:rtl
-   让原生 range 竖起来（min 在底部，值从下往上）。 */
-:deep(.plyr__volume) { min-width: 0; position: relative; }
-:deep(.plyr__volume input[type=range]) {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 50%;
-  transform: translateX(-50%);
-  writing-mode: vertical-lr;
-  direction: rtl;
-  width: 4px;
-  height: 0;
-  opacity: 0;
-  transition: height .2s ease, opacity .2s ease;
-  margin: 0;
-  cursor: pointer;
-  -webkit-appearance: none; appearance: none;
-  background: transparent;
-}
-:deep(.plyr__volume:hover input[type=range]),
-:deep(.plyr__volume:focus-within input[type=range]) {
-  height: 64px;
-  opacity: 1;
-}
-:deep(.plyr__volume input[type=range])::-webkit-slider-runnable-track {
-  width: 4px;
-  height: 100%;
-  border-radius: 2px;
-  background-image: linear-gradient(to top, #fff var(--value, 0%), rgba(255,255,255,.25) var(--value, 0%));
-}
-:deep(.plyr__volume input[type=range])::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  margin-left: -4px; /* 12px 圆点相对 4px 轨道居中 */
-}
-:deep(.plyr__volume input[type=range])::-moz-range-track {
-  width: 4px; height: 100%;
-  border-radius: 2px;
-  background: rgba(255,255,255,.25);
-}
-:deep(.plyr__volume input[type=range])::-moz-range-progress {
-  width: 4px; height: 100%;
-  border-radius: 2px;
-  background: #fff;
-}
-:deep(.plyr__volume input[type=range])::-moz-range-thumb {
-  width: 12px; height: 12px;
-  border: none; border-radius: 50%;
-  background: #fff;
-}
-
-/* 音量百分比数字（参照 ArtPlayer）：hover 音量条时显示在滑块上方。
-   白色无底色，靠 text-shadow 保证在视频/渐变遮罩上可读（不引入黑块）。 */
-:deep(.plyr__volume .vol-val) {
-  position: absolute;
-  bottom: calc(100% + 78px); /* 滑块(64px) + 10px 间距之上 */
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .7);
-  opacity: 0;
-  transition: opacity .2s ease;
-  pointer-events: none;
-  white-space: nowrap;
-}
-:deep(.plyr__volume:hover .vol-val),
-:deep(.plyr__volume:focus-within .vol-val) { opacity: 1; }
-
-/* 设置菜单：黑白 */
-:deep(.plyr__menu__container) { background: rgba(20,20,20,.95); border-radius: var(--radius-sm); }
-:deep(.plyr__control) { border-radius: var(--radius-sm); }
 </style>
