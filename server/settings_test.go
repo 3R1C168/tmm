@@ -55,8 +55,11 @@ func TestSettings_UpdateDownloadDir_Clear(t *testing.T) {
 func TestSettings_UpdateDownloadDir_Set(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	st := defaultSettings(path)
-	require.NoError(t, st.update(&updateSettingsRequest{DownloadDir: strptr(`E:\dl\new`)}))
-	require.Equal(t, `E:\dl\new`, st.downloadDir())
+	// 用平台无关的绝对路径（Windows 的 E:\ 在 Linux 上 IsAbs=false 会走绝对化分支，
+	// 导致断言不一致）；filepath.Join(t.TempDir(), ...) 任何平台都是绝对路径。
+	abs := filepath.Join(t.TempDir(), "dl", "new")
+	require.NoError(t, st.update(&updateSettingsRequest{DownloadDir: strptr(abs)}))
+	require.Equal(t, abs, st.downloadDir())
 }
 
 // 旧位置（exe 旁 settings.json）→ 新位置（data/settings.json）迁移：
