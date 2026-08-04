@@ -99,6 +99,8 @@ jobs:
           # 注意：不能用 pkg/ 做打包目录——tdl 的 pkg/ 是 Go 源码目录，会把源码打进包里
           mkdir -p bundle/web
           cp tmm.exe bundle/
+          # 启动/停止脚本（发布版解压即用：双击 start.bat 启动）
+          cp scripts/start.bat scripts/stop.bat scripts/clear-cache.bat bundle/
           cp -r web/app/dist/assets bundle/web/assets
           cp -r web/app/dist/twemoji bundle/web/twemoji 2>/dev/null || true
           cp -r web/app/dist/icons bundle/web/icons 2>/dev/null || true
