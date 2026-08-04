@@ -89,6 +89,13 @@ export const usePlayerStore = defineStore('player', {
     prev() { if (this.hasPrev) this.play(this.queue[this.queueIndex - 1]) },
     next() { if (this.hasNext) this.play(this.queue[this.queueIndex + 1]) },
 
+    // 播放状态上报（幂等）：playing 状态真正转变才上报，防 pause 事件 + close() 双路径重复报
+    _setPlaying(p) {
+      if (this.playing === p) return
+      this.playing = p
+      reportPlayback(p)
+    },
+
     close() {
       if (this._el) {
         this._el.pause()
@@ -96,8 +103,7 @@ export const usePlayerStore = defineStore('player', {
         this._el.load()
       }
       this.current = null
-      this.playing = false
-      reportPlayback(false)
+      this._setPlaying(false)
       this.currentTime = 0
       this.duration = 0
       this.loading = false
@@ -119,11 +125,11 @@ export const usePlayerStore = defineStore('player', {
     locate() { if (this.current) this.locateMsgId = this.current.msgId },
 
     // --- element event hooks, bound directly in GlobalPlayer's template ---
-    _onPlay() { this.playing = true; this.loading = false; reportPlayback(true) },
-    _onPause() { this.playing = false; reportPlayback(false) },
+    _onPlay() { this.loading = false; this._setPlaying(true) },
+    _onPause() { this._setPlaying(false) },
     _onTimeUpdate(t) { this.currentTime = t },
     _onLoadedMetadata(d) { this.duration = d; this.loading = false },
-    _onEnded() { this.playing = false; reportPlayback(false) }, // 单曲播完即停，不自动连播
+    _onEnded() { this._setPlaying(false) }, // 单曲播完即停，不自动连播
     _onError(msg) { this.loading = false; this.error = msg || '音频加载失败' },
   },
 })
