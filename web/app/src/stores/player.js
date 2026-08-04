@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { api } from '../api'
 import { isAudio as isAudioMedia } from '../utils/media'
+import { reportPlayback } from '../utils/playback'
 
 // Global audio player: a single <audio> element (owned by GlobalPlayer.vue,
 // outside the virtual-scrolled message list and any route) driven by this
@@ -96,6 +97,7 @@ export const usePlayerStore = defineStore('player', {
       }
       this.current = null
       this.playing = false
+      reportPlayback(false)
       this.currentTime = 0
       this.duration = 0
       this.loading = false
@@ -117,11 +119,11 @@ export const usePlayerStore = defineStore('player', {
     locate() { if (this.current) this.locateMsgId = this.current.msgId },
 
     // --- element event hooks, bound directly in GlobalPlayer's template ---
-    _onPlay() { this.playing = true; this.loading = false },
-    _onPause() { this.playing = false },
+    _onPlay() { this.playing = true; this.loading = false; reportPlayback(true) },
+    _onPause() { this.playing = false; reportPlayback(false) },
     _onTimeUpdate(t) { this.currentTime = t },
     _onLoadedMetadata(d) { this.duration = d; this.loading = false },
-    _onEnded() { this.playing = false }, // 单曲播完即停，不自动连播
+    _onEnded() { this.playing = false; reportPlayback(false) }, // 单曲播完即停，不自动连播
     _onError(msg) { this.loading = false; this.error = msg || '音频加载失败' },
   },
 })

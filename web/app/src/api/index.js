@@ -54,6 +54,8 @@ export const api = {
     req('GET', `/api/chats/${chatId}/around?msg=${msgId}&limit=${limit}`),
   // 标记频道消息已读（≤maxID），仿桌面端「跳到未读末尾=已读」
   markRead: (chatId, maxId) => req('POST', `/api/chats/${chatId}/read?max_id=${maxId}`),
+  // 播放状态上报：前台播放/停止时通知后端限速调度（后台下载限速 100KB/s）
+  setPlayback: (playing) => req('POST', '/api/media/playback', { playing }),
 
   // 评论区（只读）：拉取频道帖子的讨论组回复，新→旧
   listReplies: (chatId, msgId, { offsetId = 0, limit = 50 } = {}) =>
