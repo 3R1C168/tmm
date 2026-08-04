@@ -10,36 +10,59 @@ permissions:
   contents: write
 
 jobs:
-  homebrew:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Bump Homebrew formula
-        uses: dawidd6/action-homebrew-bump-formula@v7
-        with:
-          token: ${{ secrets.RELEASE_TOKEN }}
-          formula: telegram-downloader
-  goreleaser:
-    runs-on: ubuntu-22.04
+  release-win:
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-      - name: Fetch all tags
-        run: git fetch --force --tags
-      - name: Set up Go
+          fetch-depth: 0 # git describe 需要 tag 历史
+      - name: Setup Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-      - name: Get previous tag
-        run: echo "PREV_TAG=$(git describe --tags --match "v*" --abbrev=0 HEAD^)" >> $GITHUB_ENV
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
         with:
-          distribution: goreleaser
-          version: v1.18.2
-          args: release --rm-dist --timeout 1h
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/app/package-lock.json
+      - name: Install web deps
+        working-directory: web/app
+        run: npm ci
+      - name: Build frontend
+        working-directory: web/app
+        run: npm run build
+      - name: Build tmm.exe
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          DATE=$(git log -1 --format=%cd --date=format:%Y-%m-%dT%H:%M:%S 2>/dev/null || echo "unknown")
+          echo "版本: $VERSION (commit $DATE)"
+          go build -ldflags="-s -w \
+            -X github.com/iyear/tdl/pkg/consts.Version=$VERSION \
+            -X github.com/iyear/tdl/pkg/consts.Commit=$COMMIT \
+            -X github.com/iyear/tdl/pkg/consts.CommitDate=$DATE" \
+            -o tmm.exe .
+      - name: Assemble package
+        shell: bash
+        run: |
+          mkdir -p pkg/web
+          cp tmm.exe pkg/
+          cp -r web/app/dist/assets pkg/web/assets
+          cp -r web/app/dist/twemoji pkg/web/twemoji 2>/dev/null || true
+          cp -r web/app/dist/icons pkg/web/icons 2>/dev/null || true
+          cp web/app/dist/index.html pkg/web/index.html
+          tar -a -c -f tmm-win64.zip -C pkg .
+      - name: Create Release
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          GORELEASER_PREVIOUS_TAG: ${{ env.PREV_TAG }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 已存在同名 release 则跳过（重复 tag 不会重建）
+          gh release create "${{ github.ref_name }}" tmm-win64.zip `
+            --title "tmm ${{ github.ref_name }}" `
+            --notes "tmm Windows 版：解压后运行 tmm.exe（首次启动在浏览器打开 http://127.0.0.1:8080）。
+            包含前端 web/ 与后端 exe，自动注入版本号 ${{ github.ref_name }}。" `
+            --repo "${{ github.repository }}" 2>&1 || echo "release 已存在或创建失败，见上文"
