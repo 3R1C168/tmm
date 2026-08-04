@@ -40,6 +40,8 @@ if [[ "${1:-}" == "web" ]]; then
   # dist/twemoji/，这里一并部署，否则反应图 404
   rm -rf ../tmm/web/twemoji
   cp -r web/app/dist/twemoji ../tmm/web/twemoji
+  rm -rf ../tmm/web/icons
+  cp -r web/app/dist/icons ../tmm/web/icons
   cp web/app/dist/index.html ../tmm/web/index.html
   echo "==> 前端部署完成"
 fi
