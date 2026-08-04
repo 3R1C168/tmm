@@ -405,7 +405,10 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(2px);
 }
 .mv-overlay.theater { background: rgba(0, 0, 0, 0.94); backdrop-filter: none; }
-/* 卡片：按视频尺寸自适应，深色面板 */
+/* 卡片：按视频尺寸自适应，深色面板。
+   高度上限留出顶栏空间：普通模式顶栏 absolute 悬在卡片上方（top:-46px），
+   若卡片超高贴到视口顶（如竖屏内容），顶栏会被推出视口上方看不见文件名；
+   上下各留 46px 让超高卡片仍居中、顶栏留在视口内。 */
 .mv-card {
   position: relative;
   display: flex; flex-direction: column;
@@ -413,9 +416,9 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
   overflow: visible;
-  max-width: 100vw; max-height: 100vh;
+  max-width: 100vw; max-height: calc(100vh - 92px);
 }
-.mv-overlay.theater .mv-card { border-radius: 0; box-shadow: none; width: 100%; height: 100%; }
+.mv-overlay.theater .mv-card { border-radius: 0; box-shadow: none; width: 100%; height: 100%; max-height: 100vh; }
 /* 影院模式：右上角浮层按钮 hover 显现 */
 .mv-float-actions { position: absolute; top: 12px; right: 12px; z-index: 20; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; }
 .mv-overlay.theater:hover .mv-float-actions,
