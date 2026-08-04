@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Telegram 消息管理器</title>
+  <defs>
+    <linearGradient id="background" x1="28" y1="22" x2="229" y2="235" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9C5CF0"/>
+      <stop offset="1" stop-color="#5133A6"/>
+    </linearGradient>
+    <linearGradient id="message" x1="50" y1="75" x2="204" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E6D7FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="224" height="224" rx="54" fill="url(#background)"/>
+  <path d="M51 74h72l83 54-83 54H51l83-54-83-54Z" fill="url(#message)"/>
+  <path d="m51 74 83 54-83 54 72-54L51 74Z" fill="#C8A7F6"/>
+  <path d="m134 128 72 0-83 54 11-54Z" fill="#F4EEFF"/>
+  <circle cx="61" cy="128" r="10" fill="#6841BE"/>
+</svg>
