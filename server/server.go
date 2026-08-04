@@ -106,6 +106,9 @@ type Server struct {
 
 	shutdownOnce sync.Once
 	shutdownDone chan struct{}
+
+	playback *playbackState // 前台播放状态（限速调度用）
+	throttle *throttle      // 前台播放时后台下载的全局限速器（100KB/s）
 }
 
 // New builds the service. The storage engine is shared by all accounts (bbolt
@@ -144,12 +147,14 @@ func New(opts Options, stg kv.Storage) *Server {
 		msgsInflight:   make(map[string]*msgsCall),
 		searchInflight: make(map[string]*searchCall),
 		shutdownDone:   make(chan struct{}),
+		playback:       newPlaybackState(),
 	}
 	s.accounts = newAccountManager(stg, opts.Proxy, opts.NTP)
 	s.tasks = newTaskManager(s)
 	s.initLogger(logctx.From(context.Background()))
 	s.settings = defaultSettings(settingsPath())
 	_ = s.settings.load()
+	s.throttle = newThrottle(s.playback)
 	return s
 }
 
@@ -284,6 +289,9 @@ func (s *Server) router() *mux.Router {
 	api.HandleFunc("/media/{id}/{msg}/thumb", s.handleMediaThumb).Methods(http.MethodGet)
 	api.HandleFunc("/media/{id}/{msg}/file", s.handleMediaFile).Methods(http.MethodGet)
 	api.HandleFunc("/media/{id}/{msg}/stream", s.handleMediaStream).Methods(http.MethodGet)
+
+	// playback: 前端播放状态上报（播放/暂停/心跳），驱动后台下载全局限速
+	api.HandleFunc("/media/playback", s.handlePlayback).Methods(http.MethodPost)
 
 	// telegraph: in-app article reading + image download (消息内嵌 Telegraph 链接)
 	api.HandleFunc("/telegraph/{id}/{msg}/read", s.handleTelegraphRead).Methods(http.MethodGet)

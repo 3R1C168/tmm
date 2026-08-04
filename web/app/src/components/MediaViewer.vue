@@ -39,9 +39,9 @@
               playsinline
               preload="auto"
               :poster="poster"
-              @play="vPlaying = true"
-              @pause="vPlaying = false"
-              @ended="vPlaying = false"
+              @play="onVideoPlay"
+              @pause="onVideoPause"
+              @ended="onVideoPause"
               @timeupdate="vCurrent = $event.target.currentTime"
               @durationchange="vDuration = $event.target.duration"
               @loadedmetadata="vDuration = $event.target.duration"
@@ -108,6 +108,7 @@ import { api } from '../api'
 import VideoControls from './VideoControls.vue'
 import { fmtBytes } from '../utils/format'
 import { isVideo as isVideoMedia } from '../utils/media'
+import { reportPlayback } from '../utils/playback'
 import { Download, X, TriangleAlert, ChevronLeft, ChevronRight, ZoomOut, ZoomIn, RotateCcw } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -228,6 +229,8 @@ async function resetMedia() {
   zoom.value = 1
   // 切视频时重置播放状态（含 duration，防新视频 loadedmetadata 前用旧 duration）
   vPlaying.value = false
+  // 旧视频停止播放：上报停止（切换后若 autoplay 成功会再触发 @play 上报 true，幂等无害）
+  report(false)
   vCurrent.value = 0
   vBuffered.value = 0
   vDuration.value = 0
@@ -259,6 +262,17 @@ function setupVideo() {
 }
 
 // video 事件处理
+// 播放状态上报（幂等配对）：播放器可能重复触发 play/pause/ended（seek、关闭双路径），
+// 用组件级标志保证上报严格配对，避免误停其他播放源（引用计数）
+let mvReported = false
+function report(playing) {
+  if (playing && !mvReported) { mvReported = true; reportPlayback(true) }
+  else if (!playing && mvReported) { mvReported = false; reportPlayback(false) }
+}
+// 视频播放状态上报：播放→后端限速后台下载；暂停/结束→恢复
+function onVideoPlay() { vPlaying.value = true; report(true) }
+function onVideoPause() { vPlaying.value = false; report(false) }
+
 function onBuffered(e) {
   const v = e.target
   try {
@@ -346,6 +360,8 @@ function videoErrorText(err) {
 function close() {
   theater.value = false
   stopLoadingWatch()
+  // video 卸载前上报停止，解除后台下载限速
+  report(false)
   emit('update:modelValue', false)
 }
 function prev() { if (index.value > 0) index.value-- }
@@ -372,6 +388,8 @@ function onKey(e) {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
   stopLoadingWatch()
+  // 组件卸载兜底：浏览器返回/路由切换时可能不触发 pause 事件，主动上报停止防心跳泄漏
+  if (mvReported) { mvReported = false; reportPlayback(false) }
 })
 </script>
 

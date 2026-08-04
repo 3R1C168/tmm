@@ -404,11 +404,14 @@ func (srv *Server) buildDlOptions(ctx context.Context, a *account, task *Task, a
 			}
 			key := e.Key().String()
 			task.mu.Lock()
-			defer task.mu.Unlock()
 			if fe := adapter.findFileLocked(key); fe != nil && fe.UserPaused {
+				task.mu.Unlock()
 				return errFilePaused
 			}
-			return nil
+			task.mu.Unlock()
+			// 限速：前台播放时全局 100KB/s（写 chunk 前等待令牌）。
+			// 必须释放 task.mu 再等待（限速可能等 ~10s，不能持有锁阻塞其他文件）。
+			return srv.throttle.waitForChunk(ctx)
 		},
 	}
 	return opts, nil
