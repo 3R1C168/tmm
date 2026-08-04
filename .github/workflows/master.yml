@@ -29,7 +29,7 @@ jobs:
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev # sqweek/dialog needs GTK3 headers
       - name: Setup Golang env
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false # conflict with golangci-lint cache
@@ -46,7 +46,7 @@ jobs:
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev # sqweek/dialog needs GTK3 headers
       - name: Setup Golang env
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -64,7 +64,7 @@ jobs:
         with:
           fetch-depth: 0 # git describe 需要 tag 历史
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -116,7 +116,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Setup Golang env
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
