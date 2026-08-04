@@ -38,9 +38,7 @@
               class="mv-video"
               playsinline
               preload="auto"
-              :data-poster="poster"
-              :volume="vVolume"
-              :muted="vMuted"
+              :poster="poster"
               @play="vPlaying = true"
               @pause="vPlaying = false"
               @ended="vPlaying = false"
@@ -49,7 +47,6 @@
               @loadedmetadata="vDuration = $event.target.duration"
               @progress="onBuffered"
               @volumechange="onVolumeChange"
-              @seeked="onSeeked"
             />
             <!-- 加载 / 错误提示：流式起播需要拉取首块 + 尾部 moov，给可读反馈 -->
             <div v-if="videoLoading" class="mv-vstatus">
@@ -142,7 +139,6 @@ const vDuration = ref(0)
 const vBuffered = ref(0)
 const vVolume = ref(parseFloat(localStorage.getItem('tmm-volume') || '0.5') || 0.5)
 const vMuted = ref(false)
-let seeking = false  // seek 拖动防重入 flag
 
 const item = computed(() => props.list[index.value] || null)
 const isVideo = computed(() => isVideoMedia(item.value?.media))
@@ -230,10 +226,11 @@ async function resetMedia() {
   // 原生 video：切上/下一条直接改 src，无包装层无 ref 丢失问题。
   // 切到图片时 video 被 v-if 卸载，无需 destroy。
   zoom.value = 1
-  // 切视频时重置播放状态
+  // 切视频时重置播放状态（含 duration，防新视频 loadedmetadata 前用旧 duration）
   vPlaying.value = false
   vCurrent.value = 0
   vBuffered.value = 0
+  vDuration.value = 0
   loadInfo()
 }
 
@@ -276,13 +273,8 @@ function onVolumeChange(e) {
 function onSeek(sec) {
   const el = videoEl.value
   if (!el) return
-  seeking = true
   el.currentTime = sec
   vCurrent.value = sec
-}
-// seek 拖动后恢复播放：原生 video seek 后多数浏览器保持原播放态，这里兜底
-function onSeeked() {
-  if (seeking) seeking = false
 }
 function onSetVolume(v) {
   const el = videoEl.value
@@ -427,27 +419,12 @@ onBeforeUnmount(() => {
 .mv-title { min-width: 0; }
 .mv-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mv-sub { font-size: 12px; color: rgba(255,255,255,.6); margin-top: 2px; }
-.mv-topactions { display: flex; align-items: center; gap: 8px; flex: none; }
 .mv-icon-btn {
   height: 30px; min-width: 34px; padding: 0 8px; border: none; border-radius: var(--radius-sm);
   background: rgba(255,255,255,.08); color: #fff; font-size: 15px; cursor: pointer; transition: .15s;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .mv-icon-btn:hover { background: rgba(255,255,255,.2); }
-.mv-dl-top {
-  height: 36px; padding: 0 14px; border: none; border-radius: var(--radius-lg);
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--glass-bg); color: var(--glass-color); font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
-  backdrop-filter: blur(6px);
-}
-.mv-dl-top:hover { background: var(--accent); color: #fff; }
-.mv-x {
-  width: 36px; height: 36px; border: none; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--glass-bg); color: var(--glass-color); cursor: pointer; transition: .15s;
-  backdrop-filter: blur(6px);
-}
-.mv-x:hover { background: var(--red, #ef4444); color: #fff; }
 
 .mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; border-radius: var(--radius-lg); }
 .mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
