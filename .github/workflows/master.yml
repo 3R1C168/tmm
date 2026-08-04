@@ -102,8 +102,9 @@ jobs:
           cp -r web/app/dist/twemoji pkg/web/twemoji 2>/dev/null || true
           cp -r web/app/dist/icons pkg/web/icons 2>/dev/null || true
           cp web/app/dist/index.html pkg/web/index.html
-          # 打包 zip（Windows 自带 tar 支持 zip）
-          tar -a -c -f tmm-win64.zip -C pkg .
+          # 打包 zip：用 PowerShell Compress-Archive（Windows tar -a 不支持 zip，
+          # 会把 .zip 名写成 gzip 格式，产物打不开）
+          powershell -Command "Compress-Archive -Path pkg/* -DestinationPath tmm-win64.zip -Force"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
