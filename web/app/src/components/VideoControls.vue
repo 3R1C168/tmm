@@ -35,8 +35,8 @@
       />
     </div>
 
-    <!-- 音量：静音按钮 + hover 竖向弹出 range + 百分比 -->
-    <div class="vc-volume">
+    <!-- 音量：静音按钮 + hover 竖向弹出 range + 百分比。5% 一档挡位吸附（step=5） -->
+    <div class="vc-volume" @wheel.prevent="onVolumeWheel">
       <button class="vc-btn" :title="muted || volume === 0 ? '取消静音' : '静音'" @click="$emit('toggle-mute')">
         <VolumeX v-if="muted || volume === 0" :size="20" />
         <Volume2 v-else :size="20" />
@@ -44,26 +44,12 @@
       <input
         type="range"
         class="vc-vol"
-        min="0" max="100"
+        min="0" max="100" step="5"
         :value="volValue"
         :style="{ '--vol-pct': volPct + '%' }"
         @input="onVolume"
       />
       <span class="vc-vol-val">{{ volPct + '%' }}</span>
-    </div>
-
-    <!-- 速度：按钮 + hover 竖向弹出按钮列 -->
-    <div class="vc-speed">
-      <button class="vc-btn vc-speed-btn" title="播放速度">{{ rateLabel }}</button>
-      <div class="vc-speed-pop">
-        <button
-          v-for="r in [2, 1.5, 1.25, 1, 0.75, 0.5]"
-          :key="r"
-          class="vc-speed-item"
-          :class="{ active: playbackRate === r }"
-          @click="$emit('set-rate', r)"
-        >{{ r }}x</button>
-      </div>
     </div>
 
     <!-- 网页全屏 -->
@@ -90,26 +76,34 @@ const props = defineProps({
   theater: Boolean,
   loading: Boolean,
   error: { type: String, default: '' },
-  playbackRate: { type: Number, default: 1 },
 })
-const emit = defineEmits(['play', 'pause', 'seek', 'set-volume', 'toggle-mute', 'toggle-theater', 'set-rate'])
+const emit = defineEmits(['play', 'pause', 'seek', 'set-volume', 'toggle-mute', 'toggle-theater'])
 
 // seek range 值（0-1000）与已播填充比例（0-100%）
 const seekValue = computed(() => props.duration ? Math.round((props.currentTime / props.duration) * 1000) : 0)
 const seekPct = computed(() => props.duration ? (props.currentTime / props.duration * 100) : 0)
-// 音量 range 值（0-100）与填充比例（0-100%）
-const volValue = computed(() => props.muted ? 0 : Math.round(props.volume * 100))
-const volPct = computed(() => props.muted ? 0 : Math.round(props.volume * 100))
-// 速度按钮文字：1x 显示"倍速"，其它显示具体值
-const rateLabel = computed(() => props.playbackRate === 1 ? '倍速' : props.playbackRate + 'x')
+// 音量 range 值（0-100，5% 挡位量化）与填充比例（0-100%）
+const volValue = computed(() => props.muted ? 0 : quantize5(Math.round(props.volume * 100)))
+const volPct = computed(() => props.muted ? 0 : quantize5(Math.round(props.volume * 100)))
 
-// range @input：0-1000 → 秒上报
+// 量化到 5% 挡位（0/5/10/.../100），配合 step=5 产生挡位吸附感
+function quantize5(v) { return Math.round(v / 5) * 5 }
+
+// range @input：seek 0-1000 → 秒上报
 function onSeek(e) {
   const v = Number(e.target.value) / 1000
   emit('seek', v * (props.duration || 0))
 }
+// range @input：音量 0-100 → 0-1 上报
 function onVolume(e) {
   emit('set-volume', Number(e.target.value) / 100)
+}
+// 滚轮调音量：一格 ±5%（挡位步进，配合 step=5）
+function onVolumeWheel(e) {
+  const cur = props.muted ? 0 : Math.round(props.volume * 100)
+  const delta = e.deltaY < 0 ? 5 : -5
+  const next = Math.max(0, Math.min(100, quantize5(cur + delta)))
+  emit('set-volume', next / 100)
 }
 
 // 秒 → m:ss 或 h:mm:ss
@@ -196,7 +190,10 @@ function fmt(sec) {
 .vc-volume:focus-within .vc-vol { height: 64px; opacity: 1; }
 .vc-vol::-webkit-slider-runnable-track {
   width: 4px; height: 100%; border-radius: 2px;
-  background-image: linear-gradient(to top, #fff var(--vol-pct, 50%), rgba(255,255,255,.25) var(--vol-pct, 50%));
+  /* 5% 挡位刻度：每 5.26%（20 档间隔）一条暗刻度线，产生挡位视觉感 */
+  background-image:
+    linear-gradient(to top, #fff var(--vol-pct, 50%), rgba(255,255,255,.25) var(--vol-pct, 50%)),
+    repeating-linear-gradient(to top, transparent 0, transparent calc(5% - 1px), rgba(0,0,0,.4) calc(5% - 1px), rgba(0,0,0,.4) 5%);
 }
 .vc-vol::-webkit-slider-thumb {
   -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
@@ -213,24 +210,4 @@ function fmt(sec) {
 }
 .vc-volume:hover .vc-vol-val,
 .vc-volume:focus-within .vc-vol-val { opacity: 1; }
-
-/* 速度：hover 按钮时竖向按钮列从上方滑出（与音量同机制） */
-.vc-speed { position: relative; flex: none; }
-.vc-speed-btn { width: auto; min-width: 42px; font-size: 12px; font-weight: 600; padding: 0 6px; }
-.vc-speed-pop {
-  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; gap: 2px;
-  background: rgba(20,20,20,.92); border-radius: var(--radius-sm, 8px);
-  padding: 6px; opacity: 0; pointer-events: none;
-  transition: opacity .2s ease; backdrop-filter: blur(6px);
-}
-.vc-speed:hover .vc-speed-pop,
-.vc-speed:focus-within .vc-speed-pop { opacity: 1; pointer-events: auto; }
-.vc-speed-item {
-  width: 56px; height: 28px; border: none; border-radius: var(--radius-sm, 8px);
-  background: transparent; color: rgba(255,255,255,.85); font-size: 12px; cursor: pointer;
-  transition: background .15s;
-}
-.vc-speed-item:hover { background: rgba(255,255,255,.15); }
-.vc-speed-item.active { background: #fff; color: #000; font-weight: 600; }
 </style>

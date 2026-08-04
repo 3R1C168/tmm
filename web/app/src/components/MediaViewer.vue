@@ -3,8 +3,8 @@
     <div v-if="modelValue" class="mv-overlay" :class="{ theater }" @keydown="onKey" tabindex="-1" ref="overlayEl" @click.self="close">
       <!-- 居中卡片：按视频尺寸自适应，黑色只是衬底不是全屏遮罩；影院模式铺满视口 -->
       <div class="mv-card" :style="cardStyle" @click.stop>
-        <!-- 顶部信息栏（影院模式隐藏，改用浮层按钮） -->
-        <div class="mv-top" :class="{ 'theater-hide': theater }">
+        <!-- 顶部信息栏：普通模式在视频外（实色黑头占布局），影院模式叠在视频内顶部（渐变） -->
+        <div class="mv-top" :class="{ 'mv-top--theater': theater }">
           <div class="mv-title">
             <div class="mv-name" :title="info?.name || item?.media?.name">{{ info?.name || item?.media?.name || '媒体' }}</div>
             <div class="mv-sub">
@@ -13,13 +13,9 @@
               <span class="mv-count"> · {{ index + 1 }} / {{ list.length }}</span>
             </div>
           </div>
-          <div class="mv-topactions">
-            <button class="mv-dl-top" @click="download" title="下载此媒体"><Download :size="16" /> 下载</button>
-            <button class="mv-x" title="关闭 (Esc)" @click="close"><X :size="20" /></button>
-          </div>
         </div>
 
-        <!-- 影院模式浮层按钮：右上角悬浮，hover 显现，不占布局。网页全屏按钮已在控件条，此处只留下载/关闭 -->
+        <!-- 影院模式浮层按钮：右上角悬浮，hover 显现，不占布局。 -->
         <div v-if="theater" class="mv-float-actions">
           <button class="mv-icon-btn" @click="download" title="下载此媒体"><Download :size="16" /></button>
           <button class="mv-icon-btn" @click="close" title="关闭 (Esc)"><X :size="20" /></button>
@@ -45,7 +41,6 @@
               :data-poster="poster"
               :volume="vVolume"
               :muted="vMuted"
-              :playbackRate="vRate"
               @play="vPlaying = true"
               @pause="vPlaying = false"
               @ended="vPlaying = false"
@@ -54,7 +49,6 @@
               @loadedmetadata="vDuration = $event.target.duration"
               @progress="onBuffered"
               @volumechange="onVolumeChange"
-              @ratechange="vRate = $event.target.playbackRate"
               @seeked="onSeeked"
             />
             <!-- 加载 / 错误提示：流式起播需要拉取首块 + 尾部 moov，给可读反馈 -->
@@ -78,14 +72,12 @@
               :theater="theater"
               :loading="videoLoading"
               :error="''"
-              :playback-rate="vRate"
               @play="videoEl?.play()"
               @pause="videoEl?.pause()"
               @seek="onSeek"
               @set-volume="onSetVolume"
               @toggle-mute="onToggleMute"
               @toggle-theater="toggleTheater"
-              @set-rate="onSetRate"
             />
           </div>
 
@@ -99,8 +91,14 @@
           </div>
         </div>
 
-        <!-- 上一个/下一个导航：贴卡片外侧（mv-card overflow:visible 可显示） -->
+        <!-- 左侧导航：贴卡片外侧，上一条 -->
         <button v-if="index > 0" class="mv-nav left" @click="prev" title="上一个 (←)"><ChevronLeft :size="26" stroke-width="3" /></button>
+        <!-- 右上角：关闭 + 下载，贴卡片外侧右上 -->
+        <div class="mv-nav-col top-right">
+          <button class="mv-nav" title="关闭 (Esc)" @click="close"><X :size="22" /></button>
+          <button class="mv-nav" title="下载此媒体" @click="download"><Download :size="20" /></button>
+        </div>
+        <!-- 右侧导航：下一条，贴卡片外侧垂直居中 -->
         <button v-if="index < list.length - 1" class="mv-nav right" @click="next" title="下一个 (→)"><ChevronRight :size="26" stroke-width="3" /></button>
       </div>
     </div>
@@ -144,7 +142,6 @@ const vDuration = ref(0)
 const vBuffered = ref(0)
 const vVolume = ref(parseFloat(localStorage.getItem('tmm-volume') || '0.5') || 0.5)
 const vMuted = ref(false)
-const vRate = ref(1)
 let seeking = false  // seek 拖动防重入 flag
 
 const item = computed(() => props.list[index.value] || null)
@@ -178,9 +175,10 @@ const cardStyle = computed(() => {
     return { width: maxW + 'px', height: maxH + 'px' }
   }
   const ar = w / h
-  const controlsBar = 50 // 控件条约估，顶栏已悬浮不占
-  // 按高度优先：视频高度撑满 maxH - 控件条，宽度按比例算
-  let vh = maxH - controlsBar
+  const controlsBar = 50 // 控件条约估
+  const topBar = 46      // 顶栏悬浮在卡片上方遮罩区，视频高度上限要预留
+  // 按高度优先：视频高度撑满 maxH - 控件条 - 顶栏，宽度按比例算
+  let vh = maxH - controlsBar - topBar
   let cw = vh * ar
   // 宽度超 maxW 则按宽度收，高度等比降
   if (cw > maxW) {
@@ -190,7 +188,7 @@ const cardStyle = computed(() => {
   // 竖屏视频宽度窄，撑到控件条最小宽度
   cw = Math.max(cw, Math.min(MIN_CONTROLS_W, maxW))
   // 视频按宽度等比算高度，不强制撑满（避免 contain 留上下黑边）；
-  // 顶栏悬浮不占布局，控件条在视频下方 flex 自然排列。
+  // 顶栏悬浮在卡片上方遮罩区（不占布局），控件条在视频下方 flex 自然排列。
   return { width: Math.round(cw) + 'px' }
 })
 
@@ -254,7 +252,6 @@ function setupVideo() {
   el.src = src.value
   el.volume = vVolume.value
   el.muted = vMuted.value
-  el.playbackRate = vRate.value
   videoLoading.value = true
   videoError.value = ''
   retriedSrcError = false
@@ -301,12 +298,6 @@ function onToggleMute() {
   if (!el) return
   el.muted = !el.muted
   vMuted.value = el.muted
-}
-function onSetRate(r) {
-  const el = videoEl.value
-  if (!el) return
-  el.playbackRate = r
-  vRate.value = r
 }
 
 function watchVideoLoading() {
@@ -360,7 +351,11 @@ function videoErrorText(err) {
   }
 }
 
-function close() { theater.value = false; stopLoadingWatch(); emit('update:modelValue', false) }
+function close() {
+  theater.value = false
+  stopLoadingWatch()
+  emit('update:modelValue', false)
+}
 function prev() { if (index.value > 0) index.value-- }
 function next() { if (index.value < props.list.length - 1) index.value++ }
 function download() { if (item.value) emit('download', item.value) }
@@ -415,14 +410,20 @@ onBeforeUnmount(() => {
 .mv-float-actions .mv-icon-btn { background: rgba(0,0,0,.5); color: #fff; backdrop-filter: blur(8px); }
 .mv-float-actions .mv-icon-btn:hover { background: rgba(0,0,0,.75); }
 .mv-top {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 15;
+  position: absolute; top: -46px; left: 0; right: 0; z-index: 15;
   flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 16px 8px; color: #fff; gap: 12px;
+  padding: 6px 4px 14px; color: #fff; gap: 12px;
+  /* 透明：让 overlay 透黑遮罩透出来，不加黑条 */
+  background: transparent;
+}
+/* 影院模式：顶栏叠在视频内顶部，渐变遮罩，不占布局 */
+.mv-top--theater {
+  top: 0;
   background: linear-gradient(to bottom, rgba(0,0,0,.55) 0%, rgba(0,0,0,.15) 75%, transparent 100%);
+  border-radius: 0;
   pointer-events: none;
 }
-.mv-top > * { pointer-events: auto; }
-.mv-top.theater-hide { display: none; }
+.mv-top--theater > * { pointer-events: auto; }
 .mv-title { min-width: 0; }
 .mv-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mv-sub { font-size: 12px; color: rgba(255,255,255,.6); margin-top: 2px; }
@@ -448,15 +449,16 @@ onBeforeUnmount(() => {
 }
 .mv-x:hover { background: var(--red, #ef4444); color: #fff; }
 
-.mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; }
+.mv-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #000; overflow: hidden; border-radius: var(--radius-lg); }
 .mv-img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .1s ease-out; display: block; }
-/* 视频容器：撑满 stage 高度，按比例 contain 不裁切 */
-.mv-video-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
-.mv-video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+/* 视频容器：撑满 stage 高度，按比例 contain 不裁切；圆角匹配整体风格（video + 控件条统一裁切） */
+.mv-video-wrap { max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; border-radius: var(--radius); }
+.mv-video { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: var(--radius); }
 /* 影院模式：视频铺满整个区域，按高度 contain 等比放大（不裁切，
-   比例不匹配时留黑边是 contain 的正常行为，优于裁切丢失画面内容） */
-.mv-overlay.theater .mv-video-wrap { width: 100%; height: 100%; max-width: none; max-height: none; }
-.mv-overlay.theater .mv-video { width: 100%; height: 100%; object-fit: contain; }
+   比例不匹配时留黑边是 contain 的正常行为，优于裁切丢失画面内容）；全屏无圆角 */
+.mv-overlay.theater .mv-video-wrap { width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; }
+.mv-overlay.theater .mv-video { width: 100%; height: 100%; object-fit: contain; border-radius: 0; }
+.mv-overlay.theater .mv-stage { border-radius: 0; }
 
 /* 视频加载 / 错误状态浮层 */
 .mv-vstatus {
@@ -474,19 +476,24 @@ onBeforeUnmount(() => {
 @keyframes mv-spin { to { transform: rotate(360deg); } }
 
 .mv-nav {
-  position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
   width: 36px; height: 36px; border: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: var(--glass-bg); color: var(--glass-color); cursor: pointer; transition: .15s;
   backdrop-filter: blur(6px);
 }
 .mv-nav:hover { background: var(--accent); color: #fff; }
-/* 普通模式：按钮贴卡片外侧，留 12px 间隙不贴边 */
-.mv-nav.left { left: -48px; }
-.mv-nav.right { right: -48px; }
+/* 左侧上一条 / 右侧下一条：贴卡片外侧，垂直居中 */
+.mv-nav.left { position: absolute; top: 50%; transform: translateY(-50%); z-index: 10; left: -44px; }
+.mv-nav.right { position: absolute; top: 50%; transform: translateY(-50%); z-index: 10; right: -44px; }
+/* 右上角关闭+下载列：贴卡片外侧右上 */
+.mv-nav-col.top-right {
+  position: absolute; top: 12px; right: -44px; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
 /* 影院模式：卡片铺满视口，按钮回到内侧边缘 */
 .mv-overlay.theater .mv-nav.left { left: 12px; }
 .mv-overlay.theater .mv-nav.right { right: 12px; }
+.mv-overlay.theater .mv-nav-col.top-right { right: 12px; }
 
 .mv-controls { position: absolute; bottom: 0; left: 0; right: 0; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 16px 16px 8px; color: #fff; background: linear-gradient(to top, rgba(0,0,0,.7), transparent); opacity: 0; transition: opacity .2s; }
 .mv-stage:hover .mv-controls { opacity: 1; }
