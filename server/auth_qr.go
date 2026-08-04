@@ -94,7 +94,7 @@ func (s *qrSession) snapshot() map[string]any {
 	if s.err != "" {
 		out["error"] = s.err
 	}
-	if s.state == "success" {
+	if s.state == stateSuccess {
 		out["userId"] = s.userID
 		out["username"] = s.username
 	}
@@ -115,7 +115,7 @@ func (s *qrSession) set(state, url string, expires time.Time, err error) {
 // startQRLogin launches a QR login flow for ns in the background.
 func (srv *Server) startQRLogin(ctx context.Context, ns string) (*qrSession, error) {
 	if ns == "" {
-		ns = "default"
+		ns = defaultAccount
 	}
 
 	kvd, err := srv.stg.Open(ns)
@@ -173,7 +173,6 @@ func (srv *Server) startQRLogin(ctx context.Context, ns string) (*qrSession, err
 					srv.broker.publish("qr", sess.snapshot())
 					return nil
 				})
-
 			if err != nil {
 				if !tgerr.Is(err, "SESSION_PASSWORD_NEEDED") {
 					return errors.Wrap(err, "qr auth")
@@ -198,7 +197,7 @@ func (srv *Server) startQRLogin(ctx context.Context, ns string) (*qrSession, err
 			}
 
 			sess.mu.Lock()
-			sess.state = "success"
+			sess.state = stateSuccess
 			sess.userID = user.ID
 			sess.username = user.Username
 			sess.mu.Unlock()
@@ -208,14 +207,14 @@ func (srv *Server) startQRLogin(ctx context.Context, ns string) (*qrSession, err
 			return nil
 		})
 
-		if err != nil && sess.state != "success" {
+		if err != nil && sess.state != stateSuccess {
 			sess.set("error", "", time.Time{}, err)
 			srv.broker.publish("qr", sess.snapshot())
 			logctx.From(runCtx).Warn("qr login failed", zap.Error(err))
 		}
 
 		// on success, register the namespace as a live account
-		if sess.state == "success" {
+		if sess.state == stateSuccess {
 			if _, err := srv.accounts.ensure(context.Background(), ns); err != nil {
 				logctx.From(runCtx).Warn("register account after login", zap.Error(err))
 			}

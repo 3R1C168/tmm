@@ -166,7 +166,7 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	// 扩展名——若据此跳过补全会丢掉扩展名。
 	if !hasExt(name) {
 		diskName := filepath.Base(oldPath)
-		diskName = strings.TrimSuffix(diskName, ".tmp")
+		diskName = strings.TrimSuffix(diskName, tmpSuffix)
 		oldExt := filepath.Ext(diskName)
 		// oldExt 可能是 "."（磁盘名被之前 bug 破坏成 "xxx."），不是有效扩展名
 		if !hasExt(oldExt) {
@@ -194,10 +194,10 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	newPath := filepath.Join(filepath.Dir(oldPath), newName)
 
 	// 如果旧文件是 .tmp，新文件也保留 .tmp
-	isTmp := strings.HasSuffix(oldBase, ".tmp")
-	if isTmp && !strings.HasSuffix(newName, ".tmp") {
-		newPath += ".tmp"
-		newName += ".tmp"
+	isTmp := strings.HasSuffix(oldBase, tmpSuffix)
+	if isTmp && !strings.HasSuffix(newName, tmpSuffix) {
+		newPath += tmpSuffix
+		newName += tmpSuffix
 	}
 
 	// 冲突兜底：目标已存在且不是源文件时，自动加 _2、_3… 后缀。
@@ -206,12 +206,12 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		ext := filepath.Ext(newName)
 		base := strings.TrimSuffix(newName, ext)
 		if isTmp {
-			base = strings.TrimSuffix(base, ".tmp")
+			base = strings.TrimSuffix(base, tmpSuffix)
 		}
 		for i := 2; ; i++ {
 			cand := fmt.Sprintf("%s_%d", base, i)
 			if isTmp {
-				cand += ".tmp"
+				cand += tmpSuffix
 			}
 			cand += ext
 			candPath := filepath.Join(filepath.Dir(oldPath), cand)
@@ -306,7 +306,7 @@ func (s *Server) handleBatchTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Action {
-	case "pause", "resume", "delete":
+	case actionPause, actionResume, "delete":
 	default:
 		writeErr(w, http.StatusBadRequest, errors.Errorf("invalid action: %s", req.Action))
 		return

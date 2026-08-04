@@ -89,7 +89,7 @@ func (s *Server) resolveMedia(ctx context.Context, a *account, chatID string, ms
 						mt.supportsStreaming = v.SupportsStreaming
 					}
 					if a, ok := attr.(*tg.DocumentAttributeAudio); ok {
-						mt.duration = int(a.Duration)
+						mt.duration = a.Duration
 					}
 				}
 			}
@@ -168,31 +168,6 @@ func resolveThumb(msg *tg.Message) (*thumbTarget, bool) {
 		}
 	}
 	return nil, false
-}
-
-// pickPhotoThumb chooses a small photo size for list previews.
-func pickPhotoThumb(sizes []tg.PhotoSizeClass) (string, int, bool) {
-	want := map[string]bool{"m": true, "s": true, "x": true}
-	var fallback *tg.PhotoSize
-	var prog *tg.PhotoSizeProgressive
-	for _, sc := range sizes {
-		switch s := sc.(type) {
-		case *tg.PhotoSize:
-			if want[s.Type] {
-				return s.Type, s.Size, true
-			}
-			fallback = s
-		case *tg.PhotoSizeProgressive:
-			prog = s
-		}
-	}
-	if fallback != nil {
-		return fallback.Type, fallback.Size, true
-	}
-	if prog != nil && len(prog.Sizes) > 0 {
-		return prog.Type, prog.Sizes[len(prog.Sizes)-1], true
-	}
-	return "", 0, false
 }
 
 // --- handlers ---

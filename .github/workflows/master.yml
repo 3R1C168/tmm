@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev # sqweek/dialog needs GTK3 headers
       - name: Setup Golang env
         uses: actions/setup-go@v6
         with:
@@ -41,6 +43,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev # sqweek/dialog needs GTK3 headers
       - name: Setup Golang env
         uses: actions/setup-go@v6
         with:
@@ -49,7 +53,8 @@ jobs:
       - name: Build
         run: go build
       - name: Unit Test
-        run: go test -v $(go list ./... | grep -v /test) # skip e2e test
+        # 跳过 e2e test 目录（需要连 Telegram 服务器，CI 不跑）
+        run: go test -v $(go list ./... | grep -vE '(^|/)test(/|$)')
   e2e-test:
     runs-on: ubuntu-22.04
     if: false # skip e2e test for now, since it is not stable

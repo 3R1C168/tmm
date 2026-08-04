@@ -111,10 +111,10 @@ func (m *accountManager) ensure(ctx context.Context, ns string) (*account, error
 	}
 
 	a := &account{
-		ns:     ns,
-		kvd:    kvd,
-		client: client,
-		done:   make(chan struct{}),
+		ns:      ns,
+		kvd:     kvd,
+		client:  client,
+		done:    make(chan struct{}),
 		readyCh: make(chan struct{}),
 	}
 	m.accounts[ns] = a

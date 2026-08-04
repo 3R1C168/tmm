@@ -65,7 +65,7 @@ func probeDesktop(path, passcode string) (*desktopProbe, error) {
 // confirmDesktopImport imports the chosen account's session into ns.
 func (srv *Server) confirmDesktopImport(ctx context.Context, ns, path, passcode string, userID uint64, logout bool) error {
 	if ns == "" {
-		ns = "default"
+		ns = defaultAccount
 	}
 
 	desktop, err := findDesktopDir(path)

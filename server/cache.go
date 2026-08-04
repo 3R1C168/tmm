@@ -109,7 +109,7 @@ func (c *cache) writeMeta(name string, data any) error {
 	if err != nil {
 		return errors.Wrap(err, "marshal meta")
 	}
-	tmp := c.metaPath(name) + ".tmp"
+	tmp := c.metaPath(name) + tmpSuffix
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return errors.Wrap(err, "write meta")
 	}
@@ -188,8 +188,8 @@ func (c *cache) evictLRU(maxBytes int64, logf func(msg string, args ...any)) {
 	if total <= maxBytes {
 		return
 	}
-		// sort oldest first
-		sort.Slice(files, func(i, j int) bool { return files[i].mod < files[j].mod })
+	// sort oldest first
+	sort.Slice(files, func(i, j int) bool { return files[i].mod < files[j].mod })
 	removed := int64(0)
 	count := 0
 	for _, f := range files {
@@ -202,7 +202,7 @@ func (c *cache) evictLRU(maxBytes int64, logf func(msg string, args ...any)) {
 			count++
 			// keep the partial and its control file in lockstep
 			var sibling string
-			if strings.HasSuffix(f.path, ".tmp") {
+			if strings.HasSuffix(f.path, tmpSuffix) {
 				sibling = f.path + ".tdlstate"
 			} else if strings.HasSuffix(f.path, ".tdlstate") {
 				sibling = strings.TrimSuffix(f.path, ".tdlstate")
@@ -228,6 +228,6 @@ func (c *cache) evictLRU(maxBytes int64, logf func(msg string, args ...any)) {
 // that a later download resumes from the bytes already fetched. The matching
 // control file is downloader.StatePath(previewDataPath).
 func (c *cache) previewDataPath(peerID int64, msgID int) string {
-	name := strconv.FormatInt(peerID, 10) + "_" + strconv.Itoa(msgID) + ".tmp"
+	name := strconv.FormatInt(peerID, 10) + "_" + strconv.Itoa(msgID) + tmpSuffix
 	return filepath.Join(c.previewDir(), name)
 }

@@ -91,11 +91,11 @@ type MessageInfo struct {
 // as MessageMediaWebPage. The preview image (if any) is fetched through the
 // normal /media/{id}/{msg}/thumb endpoint (resolveThumb handles WebPage).
 type LinkPreview struct {
-	Title   string `json:"title,omitempty"`
-	Desc    string `json:"desc,omitempty"`
-	Site    string `json:"site,omitempty"` // site name, e.g. "telegra.ph"
-	URL     string `json:"url"`
-	HasPhoto bool  `json:"hasPhoto"` // preview carries a photo (via /media thumb)
+	Title    string `json:"title,omitempty"`
+	Desc     string `json:"desc,omitempty"`
+	Site     string `json:"site,omitempty"` // site name, e.g. "telegra.ph"
+	URL      string `json:"url"`
+	HasPhoto bool   `json:"hasPhoto"` // preview carries a photo (via /media thumb)
 }
 
 // FetchMessages pages a chat's history (newest first). offsetID is the cursor:
@@ -107,8 +107,8 @@ type LinkPreview struct {
 // returned. It returns up to limit messages and the next cursor (0 = no more).
 // limit<=0 means "fetch all".
 func FetchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage,
-	chatID string, offsetID, limit int, mediaOnly bool) ([]*MessageInfo, int, error) {
-
+	chatID string, offsetID, limit int, mediaOnly bool,
+) ([]*MessageInfo, int, error) {
 	fetchAll := limit <= 0
 	if !fetchAll && limit > 500 {
 		limit = 500 // cap a single page

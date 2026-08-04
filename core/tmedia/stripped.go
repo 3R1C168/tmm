@@ -68,11 +68,9 @@ func extractStripped(sizes []tg.PhotoSizeClass, mimeType string) *StrippedThumb 
 			stripped = s
 		case *tg.PhotoSize:
 			lastW, lastH = s.W, s.H
+		// progressive sizes share the photo's dimensions; dimensions come from
+		// a regular PhotoSize entry if present (fall back to last seen)
 		case *tg.PhotoSizeProgressive:
-			if n := len(s.Sizes); n > 0 {
-				// progressive sizes share the photo's dimensions; use the
-				// type's W/H via the largest progressive entry if present
-			}
 		}
 	}
 	if stripped == nil || len(stripped.Bytes) == 0 {

@@ -35,8 +35,8 @@ type CommentInfo struct {
 // limit<=0 or >100 falls back to 50. Returns up to limit comments and the
 // next cursor (0 = no more).
 func FetchReplies(ctx context.Context, c *telegram.Client, kvd storage.Storage,
-	chatID string, msgID, offsetID, limit int) ([]*CommentInfo, int, error) {
-
+	chatID string, msgID, offsetID, limit int,
+) ([]*CommentInfo, int, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}

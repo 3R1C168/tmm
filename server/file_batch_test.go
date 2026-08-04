@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gotd/td/tg"
 	"github.com/gorilla/mux"
+	"github.com/gotd/td/tg"
 	"github.com/stretchr/testify/require"
 )
 

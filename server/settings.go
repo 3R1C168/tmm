@@ -87,9 +87,8 @@ func (st *settings) load() error {
 	// 迁移旧位置（exe 旁的 settings.json）到 data/settings.json：新路径不存在
 	// 且旧路径存在时移动一次，保留用户已有设置。data/ 目录由 consts 保证存在。
 	if !fileExists(st.path) && fileExists(st.legacyPath) {
-		if err := os.Rename(st.legacyPath, st.path); err == nil {
-			// 移动成功即可；失败则走下面的默认值逻辑，不阻塞启动
-		}
+		// 移动成功即可；失败则走下面的默认值逻辑，不阻塞启动
+		_ = os.Rename(st.legacyPath, st.path)
 	}
 	b, err := os.ReadFile(st.path)
 	if err != nil {
@@ -139,7 +138,7 @@ func (st *settings) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := st.path + ".tmp"
+	tmp := st.path + tmpSuffix
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}

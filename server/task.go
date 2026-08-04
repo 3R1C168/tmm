@@ -36,7 +36,7 @@ type taskManager struct {
 	mu      sync.Mutex
 	queue   []string // pending task ids, FIFO
 	cancels map[string]context.CancelFunc
-	running string // currently-running task id, "" if idle
+	running string  // currently-running task id, "" if idle
 	iter    dl.Iter // 当前运行任务的迭代器（文件级暂停/恢复用），非 running 时为 nil
 
 	wake chan struct{}
@@ -119,7 +119,7 @@ func (m *taskManager) submit(ctx context.Context, account string, urls []string,
 		return nil, errors.New("请提供消息链接或选择消息")
 	}
 	if account == "" {
-		account = "default"
+		account = defaultAccount
 	}
 
 	a, err := m.srv.accounts.ensure(ctx, account)
@@ -326,9 +326,9 @@ func (m *taskManager) Batch(ctx context.Context, ids []string, action string, de
 	for _, id := range ids {
 		var err error
 		switch action {
-		case "pause":
+		case actionPause:
 			err = m.pause(id)
-		case "resume":
+		case actionResume:
 			err = m.resume(ctx, id)
 		case "delete":
 			err = m.delete(id, deleteFiles)
@@ -357,19 +357,26 @@ type FileBatchResult struct {
 // action: "pause" | "resume". Per-key results, not transactional.
 //
 // 暂停：仅 FileRunning/FilePending → FilePaused + UserPaused=true（文件级手动暂停标记）。
-//        FileDone/FileFailed 不动（返回 ok=false）。
+//
+//	FileDone/FileFailed 不动（返回 ok=false）。
+//
 // 恢复：仅 FilePaused → FilePending + UserPaused=false（任务级暂停产生的 paused 也允许恢复）。
-//        FileDone/FileFailed 不动。
+//
+//	FileDone/FileFailed 不动。
+//
 // 任务 running 时文件级暂停/恢复即时生效：
-//   暂停→iter.PauseKeys（已产出的正在下载文件由 PauseCheck 钩子即刻中断）；
-//   恢复→iter.Unpause（requeue 即时续传）。
+//
+//	暂停→iter.PauseKeys（已产出的正在下载文件由 PauseCheck 钩子即刻中断）；
+//	恢复→iter.Unpause（requeue 即时续传）。
+//
 // 任务非 running 时：恢复分支除改状态外，若任务状态是 resume 可处理的
-//   （paused/failed/interrupted/done）且确有文件被恢复，会调用 m.resume(ctx, taskID)
-//   把任务重新入队重跑 dl.Run（spec §3.4 step 3）；其他 finished 文件会被 iter 的
-//   isFinished 跳过，只下载恢复的文件。pending 任务本就在队列中会自行运行，
-//   running 任务走 iter 即时续传，两者都不需要（也不能）在此 resume。
+//
+//	（paused/failed/interrupted/done）且确有文件被恢复，会调用 m.resume(ctx, taskID)
+//	把任务重新入队重跑 dl.Run（spec §3.4 step 3）；其他 finished 文件会被 iter 的
+//	isFinished 跳过，只下载恢复的文件。pending 任务本就在队列中会自行运行，
+//	running 任务走 iter 即时续传，两者都不需要（也不能）在此 resume。
 func (m *taskManager) fileBatch(ctx context.Context, taskID string, action string, keys []string) ([]FileBatchResult, error) {
-	if action != "pause" && action != "resume" {
+	if action != actionPause && action != actionResume {
 		return nil, errors.Errorf("unknown action: %s", action)
 	}
 	if len(keys) == 0 {
@@ -395,7 +402,7 @@ func (m *taskManager) fileBatch(ctx context.Context, taskID string, action strin
 		fe := byKey[key]
 		r := FileBatchResult{Key: key}
 		switch action {
-		case "pause":
+		case actionPause:
 			if fe == nil {
 				r.Error = "file not found in task"
 			} else if fe.Status == FileDone || fe.Status == FileFailed {
@@ -406,7 +413,7 @@ func (m *taskManager) fileBatch(ctx context.Context, taskID string, action strin
 				affected = append(affected, key)
 				r.OK = true
 			}
-		case "resume":
+		case actionResume:
 			if fe == nil {
 				r.Error = "file not found in task"
 			} else if fe.Status == FilePaused {
@@ -426,9 +433,9 @@ func (m *taskManager) fileBatch(ctx context.Context, taskID string, action strin
 
 	if iter != nil {
 		switch action {
-		case "pause":
+		case actionPause:
 			iter.PauseKeys(keysToMsgKeys(affected))
-		case "resume":
+		case actionResume:
 			for _, k := range affected {
 				if mk, ok := parseMsgKey(k); ok {
 					iter.Unpause(mk)
@@ -443,7 +450,7 @@ func (m *taskManager) fileBatch(ctx context.Context, taskID string, action strin
 	// 两者都不需要（也不能）在此 resume（m.resume 对 running/pending 会返回错误）。
 	// isRunning 兜底 worker 刚把任务取出、Status 尚未更新为 running 的竞态窗口，
 	// 避免对正在执行的任务重复入队。
-	if action == "resume" && len(affected) > 0 && !m.isRunning(taskID) {
+	if action == actionResume && len(affected) > 0 && !m.isRunning(taskID) {
 		task.mu.Lock()
 		resumeable := task.Status == StatusPaused || task.Status == StatusFailed ||
 			task.Status == StatusInterrupted || task.Status == StatusDone

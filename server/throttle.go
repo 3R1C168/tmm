@@ -8,6 +8,7 @@ import (
 
 // 前台播放时后台下载的总带宽上限：100KB/s（用户指定）。
 const playbackThrottleBPS = 100 * 1024
+
 // 每个下载 chunk 的大小（core/downloader.MaxPartSize），限速按它请求令牌。
 // 令牌桶 burst 必须 >= chunk 大小：golang.org/x/time/rate 规定 n > burst 时
 // WaitN 直接返回错误（rate.go wait: "Wait(n) exceeds limiter's burst"），

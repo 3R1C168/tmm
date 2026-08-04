@@ -14,10 +14,10 @@ type fakeElem struct {
 	written int64
 }
 
-func (f *fakeElem) File() File                 { return nil }
-func (f *fakeElem) To() io.WriterAt            { return f }
-func (f *fakeElem) AsTakeout() bool            { return false }
-func (f *fakeElem) Resume() *State             { return nil }
+func (f *fakeElem) File() File      { return nil }
+func (f *fakeElem) To() io.WriterAt { return f }
+func (f *fakeElem) AsTakeout() bool { return false }
+func (f *fakeElem) Resume() *State  { return nil }
 func (f *fakeElem) WriteAt(p []byte, off int64) (int, error) {
 	f.written += int64(len(p))
 	return len(p), nil

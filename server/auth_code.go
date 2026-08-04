@@ -97,7 +97,7 @@ func (s *codeSession) snapshot() map[string]any {
 	if s.err != "" {
 		out["error"] = s.err
 	}
-	if s.state == "success" {
+	if s.state == stateSuccess {
 		out["userId"] = s.userID
 		out["username"] = s.username
 	}
@@ -157,7 +157,7 @@ func (a webAuth) Password(ctx context.Context) (string, error) {
 // startCodeLogin launches a phone/code login flow for ns.
 func (srv *Server) startCodeLogin(ctx context.Context, ns string) (*codeSession, error) {
 	if ns == "" {
-		ns = "default"
+		ns = defaultAccount
 	}
 
 	kvd, err := srv.stg.Open(ns)
@@ -221,7 +221,7 @@ func (srv *Server) startCodeLogin(ctx context.Context, ns string) (*codeSession,
 				return errors.Wrap(err, "get self")
 			}
 			sess.mu.Lock()
-			sess.state = "success"
+			sess.state = stateSuccess
 			sess.userID = user.ID
 			sess.username = user.Username
 			sess.mu.Unlock()
@@ -229,13 +229,13 @@ func (srv *Server) startCodeLogin(ctx context.Context, ns string) (*codeSession,
 			return nil
 		})
 
-		if err != nil && sess.state != "success" {
+		if err != nil && sess.state != stateSuccess {
 			sess.set("error", err)
 			srv.broker.publish("code", sess.snapshot())
 			logctx.From(runCtx).Warn("code login failed", zap.Error(err))
 		}
 
-		if sess.state == "success" {
+		if sess.state == stateSuccess {
 			if _, err := srv.accounts.ensure(context.Background(), ns); err != nil {
 				logctx.From(runCtx).Warn("register account after login", zap.Error(err))
 			}

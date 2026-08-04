@@ -45,8 +45,8 @@ type SearchResult struct {
 // offsetID/offsetTag 是两源各自的续拉游标（传上次返回的 nextOffset/nextOffsetTag），
 // 为 0 表示从最新开始，为负表示该源已拉完、跳过不再查询。
 func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage,
-	chatID, q string, offsetID, offsetTag, limit int) (*SearchResult, error) {
-
+	chatID, q string, offsetID, offsetTag, limit int,
+) (*SearchResult, error) {
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(c.API())
 	peer, err := tutil.GetInputPeer(ctx, manager, chatID)
 	if err != nil {
@@ -81,8 +81,8 @@ func SearchMessages(ctx context.Context, c *telegram.Client, kvd storage.Storage
 // searchOnce 执行一次 messages.search 并转成 SearchResult。
 // offsetID < 0 表示该源已拉完（调用方跳过），直接返回空结果，不发起 RPC。
 func searchOnce(ctx context.Context, c *telegram.Client, manager *peers.Manager,
-	peer peers.Peer, q string, offsetID, limit int) (*SearchResult, error) {
-
+	peer peers.Peer, q string, offsetID, limit int,
+) (*SearchResult, error) {
 	if offsetID < 0 {
 		return &SearchResult{}, nil
 	}
@@ -147,8 +147,8 @@ func mergeResults(a, b *SearchResult) *SearchResult {
 	sort.Slice(merged, func(i, j int) bool { return merged[i].ID > merged[j].ID })
 	return &SearchResult{
 		Results:       merged,
-		NextOffset:    a.NextOffset,    // 全文源游标
-		NextOffsetTag: b.NextOffset,    // 标签源游标
+		NextOffset:    a.NextOffset, // 全文源游标
+		NextOffsetTag: b.NextOffset, // 标签源游标
 		Count:         a.Count + b.Count - (len(a.Results) + len(b.Results) - len(merged)),
 	}
 }
@@ -160,8 +160,8 @@ func mergeResults(a, b *SearchResult) *SearchResult {
 // 不用 query.NewQuery + messages.NewIterator——迭代器 batchSize=100 会覆盖 limit，
 // 且内部维护 offsetPeer/offsetDate 副作用；跳转定位只需一次性原始 RPC。
 func FetchMessageAround(ctx context.Context, c *telegram.Client, kvd storage.Storage,
-	chatID string, msgID, limit int) ([]*MessageInfo, error) {
-
+	chatID string, msgID, limit int,
+) ([]*MessageInfo, error) {
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(c.API())
 	peer, err := tutil.GetInputPeer(ctx, manager, chatID)
 	if err != nil {

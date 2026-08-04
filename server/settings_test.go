@@ -126,10 +126,10 @@ func TestHasExt(t *testing.T) {
 	}{
 		{"video.mp4", true},
 		{"video", false},
-		{"video.", false},  // 只有结尾点，无有效扩展名
-		{"张碧晨.", false},  // 同上（中文名结尾点）
-		{".mp4", true},     // 点开头但有内容
-		{"a.b.c", true},    // 多段，ext=.c
+		{"video.", false}, // 只有结尾点，无有效扩展名
+		{"张碧晨.", false},   // 同上（中文名结尾点）
+		{".mp4", true},    // 点开头但有内容
+		{"a.b.c", true},   // 多段，ext=.c
 		{"", false},
 	}
 	for _, c := range cases {
@@ -144,7 +144,7 @@ func TestRenameExtCompletion(t *testing.T) {
 		want bool // 是否应触发补全
 	}{
 		{"video", true},
-		{"video.", true},  // 结尾点 → 需补全
+		{"video.", true}, // 结尾点 → 需补全
 		{"video.mp4", false},
 		{"张碧晨.", true},
 	}
