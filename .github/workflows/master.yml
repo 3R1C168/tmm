@@ -109,7 +109,7 @@ jobs:
           # 会把 .zip 名写成 gzip 格式，产物打不开）
           powershell -Command "Compress-Archive -Path bundle/* -DestinationPath tmm-win64.zip -Force"
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tmm-win64
           path: tmm-win64.zip
