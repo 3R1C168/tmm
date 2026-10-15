@@ -5,11 +5,12 @@ go 1.25.8
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/gabriel-vasile/mimetype v1.4.13
-	github.com/go-faster/errors v0.7.1
+	github.com/go-faster/errors v0.8.0
 	github.com/gotd/contrib v0.20.0
 	github.com/gotd/td v0.140.0
 	github.com/iyear/connectproxy v0.1.1
 	github.com/samber/lo v1.53.0
+	github.com/stretchr/testify v1.11.1
 	github.com/yapingcat/gomedia v0.0.0-20240601043430-920523f8e5c7
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
@@ -51,5 +52,6 @@ require (
 	golang.org/x/tools v0.44.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
